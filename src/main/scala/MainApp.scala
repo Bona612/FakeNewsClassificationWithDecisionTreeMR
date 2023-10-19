@@ -3,7 +3,7 @@ import org.apache.hadoop.conf.Configuration
 
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.joda.time.DateTime
+
 import dataacquisition.DataAcquisition
 import java.nio.file.{Files, Path, Paths}
 import scala.language.postfixOps

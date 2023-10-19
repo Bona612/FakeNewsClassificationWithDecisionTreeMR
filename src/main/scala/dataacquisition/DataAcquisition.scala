@@ -101,6 +101,8 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     finalDataset.show()
     println(finalDataset.count())
 
+
+    mrprova(finalDataset)
     // Count the number of rows with the specific value in the specified column
     val rowCount: Long = finalDataset.filter(col("label") === "1").count()
     println(rowCount)
@@ -150,6 +152,15 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       // Show the first few rows of the DataFrame
       df.show()
     }*/
+
+  }
+
+  private def mrprova(dataset : DataFrame): Unit = {
+
+    val countLabel = dataset.rdd.map(data => if (data.getInt(1) == 1) 1 else 0).reduce(_ + _)
+
+    println(s"True label count: $countLabel")
+
 
   }
 
