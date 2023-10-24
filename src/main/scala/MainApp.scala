@@ -1,9 +1,9 @@
 import java.io.File
 import org.apache.hadoop.conf.Configuration
-
-
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import dataacquisition.DataAcquisition
+import decisiontreealg.DataPreparation
+
 import java.nio.file.{Files, Path, Paths}
 import scala.language.postfixOps
 import scala.sys.process._
@@ -62,13 +62,16 @@ object MainApp {
     // Close the directory stream
     directoryStream.close()
 
+    var dataset: DataFrame = null
     // If the dataset isn't created, load the dataset and save it
     if (!isDatasetPresent) {
       val dataAcquisition: DataAcquisition = new DataAcquisition(kaggleDatasetList, csvPerDataset, columnsMap, textColumn, downloadPath, datasetPath, csv, spark)
-      dataAcquisition.loadDataset()
+      dataset = dataAcquisition.loadDataset()
       println("Dataset loaded succesfully!")
     }
 
+    val dataPreparation: DataPreparation = new DataPreparation(dataset)
+    dataPreparation.createAttribTable()
     /*
     println("Read dataset!")
     // Read the dataset
