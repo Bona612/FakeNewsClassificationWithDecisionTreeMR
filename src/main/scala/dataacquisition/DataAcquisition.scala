@@ -20,7 +20,7 @@ import org.apache.spark.ml.feature.{CountVectorizer, IDF} // , Tokenizer
 
 class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, String], columnsMap: Map[String, String], textColumn: String, downloadPath: String, datasetPath: String, csv: String, spark: SparkSession) {
 
-  def loadDataset(): Unit = {
+  def loadDataset(): DataFrame = {
 
     var datasetPathList: ListBuffer[String] = ListBuffer()
 
@@ -148,7 +148,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
 
     // Read the JSONL file into a DataFrame
-    var df_jsonl: DataFrame = spark.read.json("./data/data.jsonl")
+    /*var df_jsonl: DataFrame = spark.read.json("./data/data.jsonl")
     // Remove rows with missing values
     df_jsonl = df_jsonl.na.drop()
     println(df_jsonl.count())
@@ -157,12 +157,12 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     println(df_jsonl.count())
     df_jsonl = df_jsonl.withColumn("label", expr("1"))
     // Concatenate DataFrames vertically
-    finalDataset = finalDataset.union(df_jsonl)
+    finalDataset = finalDataset.union(df_jsonl)*/
 
     // Sample DataFrame
     val data_2 = Seq(
       Row("This is the first document.", 1),
-      Row("This document is the second document.", 1),
+      Row("This document is the second document.", 0),
       Row("And this is the third one.", 1),
       Row("Is this the first document?", 1)
     )
@@ -494,6 +494,9 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       df.show()
     }*/
 
+    final_dataset
+
   }
+
 
 }
