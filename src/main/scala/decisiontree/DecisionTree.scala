@@ -37,11 +37,12 @@ case class Leaf(label: String) extends DecisionTree {
   }
 }
 
-case class Node(attribute: String, value: Double, left: DecisionTree, right: DecisionTree, parent: Option[Node]) extends DecisionTree {
+case class Node(attribute: String, value: Double, var left: DecisionTree, var right: DecisionTree, parent: Option[Node]) extends DecisionTree {
 
-  def getAttribute() : String = {
+  def getAttribute(): String = {
     this.attribute
   }
+
   def getValue(): Double = {
     this.value
   }
@@ -49,15 +50,19 @@ case class Node(attribute: String, value: Double, left: DecisionTree, right: Dec
   def getLeftChild(): DecisionTree = {
     this.left
   }
+
   def getRightChild(): DecisionTree = {
     this.right
   }
 
-  def insertLeftChild(node: DecisionTree) : Unit = {
-
+  def insertLeftChild(node: DecisionTree): Unit = {
+    this.left = node
+    return Unit
   }
-  def insertRightChild(node: DecisionTree): Unit = {
 
+  def insertRightChild(node: DecisionTree): Unit = {
+    this.right = node
+    return Unit
   }
 
 
@@ -65,19 +70,20 @@ case class Node(attribute: String, value: Double, left: DecisionTree, right: Dec
     var addedRule = rule + ", "
 
     addedRule = addedRule + attribute.toString
-    left.printToFile(filename, addedRule + " <" + value.toString)
-    right.printToFile(filename, addedRule + " >=" + value.toString)
+    left.printToFile(filename, addedRule + " < " + value.toString)
+    right.printToFile(filename, addedRule + " >= " + value.toString)
   }
 
-  def printToFile(filename: String) : Unit = {
+  def printToFile(filename: String): Unit = {
     var rule: String = ""
 
     rule = rule + attribute.toString
-    left.printToFile(filename, rule + " <" + value.toString)
-    right.printToFile(filename, rule + " >=" + value.toString)
+    left.printToFile(filename, rule + " < " + value.toString)
+    right.printToFile(filename, rule + " >= " + value.toString)
   }
-
-  def fromFile(filename: String): Unit = {
+}
+object DecisionTree{
+  def fromFile(filename: String): DecisionTree = {
     // Open the file for reading
     val file = Source.fromFile(filename)
 
@@ -88,6 +94,7 @@ case class Node(attribute: String, value: Double, left: DecisionTree, right: Dec
     var attribute: String = null
     var value: Double = null
     var operation: String = null
+    var last: String = null
 
     try {
       // Iterate over the lines in the file
@@ -96,7 +103,7 @@ case class Node(attribute: String, value: Double, left: DecisionTree, right: Dec
         nodes = line.split(",")
 
         // Remove the last element and get it
-        val last = nodes.last.trim()
+        last = nodes.last.trim()
         var middleNodes = nodes.dropRight(1)
 
         for (node <- middleNodes) {
@@ -115,35 +122,52 @@ case class Node(attribute: String, value: Double, left: DecisionTree, right: Dec
             // MA NELLA REALTà LA FOGLIA LA CAVO PRIMA
             val current_node: Node = current.get.asInstanceOf[Node]
 
-            if (current_node.getAttribute() != attribute && current_node.getValue() != value) {
-              if (current_operation == "<") {
-                parent.get.insertLeftChild(Node(attribute, value, null, null, parent))
+            if (current_node.getAttribute() != attribute || current_node.getValue() != value) {
+              if (operation == "<") {
+                current_node.insertLeftChild(Node(attribute, value, null, null, Option(current_node)))
+                current = Option(current_node.getLeftChild())
               }
               else {
-                parent.get.insertRightChild(Node(attribute, value, null, null, parent))
+                current_node.insertRightChild(Node(attribute, value, null, null, Option(current_node)))
+                current = Option(current_node.getRightChild())
               }
             }
             else if (current_node.getAttribute() == attribute && current_node.getValue() == value) {
               if (current_operation != operation) {
-
-              }
-              else {
+                // INSERIRE FIGLIO MANCANTE
                 if (operation == "<") {
-                  current = Option(tree.getLeftChild())
+                  current_node.insertLeftChild(Node(attribute, value, null, null, Option(current_node)))
+                  current = Option(current_node.getLeftChild())
                 }
                 else {
-                  current = Option(tree.getRightChild())
+                  current_node.insertRightChild(Node(attribute, value, null, null, Option(current_node)))
+                  current = Option(current_node.getRightChild())
+                }
+              }
+              // SCORRIMENTO DEL NODO DELL'ALBERO GIÀ INSERITO
+              else {
+                if (operation == "<") {
+                  current = Option(current_node.getLeftChild())
+                }
+                else {
+                  current = Option(current_node.getRightChild())
                 }
               }
             }
           }
         }
-
-
-        val leaf = Leaf(removedElement)
-
+        val leaf: Leaf = Leaf(last)
+        if (operation == "<") {
+          current.get.asInstanceOf[Node].insertLeftChild(leaf)
+        }
+        else {
+          current.get.asInstanceOf[Node].insertRightChild(leaf)
+        }
+        current = Option(tree)
       }
-    } finally {
+      tree
+    }
+    finally {
       file.close() // Close the file when done
     }
   }
