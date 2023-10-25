@@ -10,11 +10,9 @@ import java.nio.file.Paths
 import scala.collection.mutable.ListBuffer
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.feature.StopWordsRemover
-import com.johnsnowlabs.nlp.annotator.{Stemmer, StopWordsCleaner, Tokenizer}
+import com.johnsnowlabs.nlp.annotator.{LemmatizerModel, Stemmer, StopWordsCleaner, Tokenizer}
+import com.johnsnowlabs.nlp.annotators.EnglishStemmer
 import org.apache.spark.sql.catalyst.ScalaReflection.universe.typeOf
-
-
-//import org.tartarus.snowball.ext.EnglishStemmer
 import org.apache.spark.ml.feature.Word2Vec
 import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.ml.feature.{CountVectorizer, IDF} // , Tokenizer
@@ -258,6 +256,13 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val stemmer = new Stemmer()
       .setInputCols("tokens")
       .setOutputCol("stemmedTokens")
+      .setLanguage("English")
+
+    /*
+    val lemmatizer = LemmatizerModel.pretrained("lemma_lines", "en")
+      .setInputCols("tokens")
+      .setOutputCol("lemmaTokens")
+     */
 
     // Create a pipeline with the tokenizer and stemmer
     // , stopWordsCleaner
