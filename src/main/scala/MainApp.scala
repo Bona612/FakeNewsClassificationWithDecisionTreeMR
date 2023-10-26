@@ -7,6 +7,8 @@ import decisiontreealg.MapReduceAlgorithm
 import java.nio.file.{Files, Path, Paths}
 import scala.language.postfixOps
 import scala.sys.process._
+import decisiontree.DecisionTree
+import decisiontree.Node
 
 object MainApp {
 
@@ -19,6 +21,21 @@ object MainApp {
 
 
   def main(args: Array[String]): Unit = {
+    val path = "/Users/luca/Desktop/tree.txt"
+
+
+    val tree = DecisionTree.fromFile(path)
+    /*
+    var node : DecisionTree = Node("Prova",0.3,null,null,None)
+    var tmp = node
+    tmp.asInstanceOf[Node].setAttribute()
+
+    println(node.asInstanceOf[Node].getAttribute())
+    println(tmp.asInstanceOf[Node].getAttribute())
+*/
+    tree.asInstanceOf[Node].writeRulesToFile("/Users/luca/Desktop/treeOutput.txt")
+    /*
+
     println("Start")
     val downloadPath: String = "./data/download"
     val datasetPath = "./data/dataset"
@@ -85,5 +102,7 @@ object MainApp {
     // Stop the Spark session
     spark.stop()
     println("Stop")
+  */
   }
+
 }
