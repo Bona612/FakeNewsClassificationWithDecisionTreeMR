@@ -173,8 +173,6 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     ))
     finalDataset = spark.createDataFrame(spark.sparkContext.parallelize(data_2), schema_2)
 
-
-
     println("Final Dataset creation finished!")
 
     finalDataset.show()
