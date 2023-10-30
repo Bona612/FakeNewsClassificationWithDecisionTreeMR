@@ -9,13 +9,12 @@ import scala.collection.mutable
 import scala.math.log10
 
 
-class MapReduceAlgorithm(table : DataFrame){
+class MapReduceAlgorithm(table : DataFrame) {
 
 
-  private var hashTable : mutable.HashMap[Int,List[Int]] = _
 
   def initAlgorithm(): DecisionTree = {
-  def initAlgorithm() :Unit = {
+
     val cols: Array[String] = table.columns.dropRight(1) //discard class column
     val rddTable = table.rdd
     mainAlgorithm(rddTable, cols, None)
@@ -107,7 +106,7 @@ class MapReduceAlgorithm(table : DataFrame){
 
   }
 
-  private def mainAlgorithm(rddTable: RDD[Row], cols: Array[String],par: Option[Node]): DecisionTree ={
+  private def mainAlgorithm(rddTable: RDD[Row], cols: Array[String],par: Option[Node]): DecisionTree = {
 
     val countTableValue = dataPreparation(rddTable, cols)
 
@@ -184,6 +183,7 @@ class MapReduceAlgorithm(table : DataFrame){
     println("entropy: "+entropy)
     (entropy.abs, maxKey)
   }
+
   private def findBestSplit(countTableValue: RDD[((String, String), (Int, Int))], entropyAll : Double): (String, String) = {
 
     val log2: Double => Double = (x: Double) => {
