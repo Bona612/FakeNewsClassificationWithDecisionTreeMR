@@ -1,5 +1,7 @@
 package decisiontree
 
+import org.apache.spark.sql.{DataFrame, Row}
+
 import java.io._
 import scala.io.Source
 
@@ -7,6 +9,8 @@ sealed trait DecisionTree {
   def printToFile(filename: String): String
   def printToFile(filename: String, rule: String): String
   def getParent(): Option[DecisionTree]
+
+  def predict(input: DataFrame): Array[Int]
 }
 
 case class Leaf(label: String,parent: Option[DecisionTree]) extends DecisionTree {
@@ -31,6 +35,8 @@ case class Leaf(label: String,parent: Option[DecisionTree]) extends DecisionTree
   }
 
   override def getParent(): Option[DecisionTree] = {parent}
+
+  override def predict(input: DataFrame): Array[Int] = { return null}
 }
 
 case class Node(var attribute: String, value: Double, var left: DecisionTree, var right: DecisionTree, parent: Option[Node]) extends DecisionTree {
@@ -108,6 +114,24 @@ case class Node(var attribute: String, value: Double, var left: DecisionTree, va
   }
 
   override def getParent(): Option[DecisionTree] = { parent }
+
+  override def predict(input: DataFrame): Array[Int] = {
+    var currentNode = this
+    val res : Array[Int] = new Array[Int](input.count().toInt)
+    print(res.length)
+    input.foreach { row: Row =>
+      while(currentNode.left!=null && currentNode!=null){
+        if (currentNode.getValue() > row.getAs[Double](currentNode.getAttribute()) ){
+          currentNode = currentNode.getLeftChild().asInstanceOf[Node]
+        }
+        else {
+          currentNode = currentNode.getRightChild().asInstanceOf[Node]
+        }
+      }
+      res(input.collect().indexOf(row)) = currentNode.asInstanceOf[Leaf].getLabel().toInt
+    }
+  res
+  }
 }
 
 
