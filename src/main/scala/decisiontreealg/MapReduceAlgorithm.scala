@@ -11,16 +11,13 @@ import scala.math.log10
 class MapReduceAlgorithm(table : DataFrame){
 
 
-  private var hashTable : mutable.HashMap[Int,List[Int]] = _
-
-
   def initAlgorithm() :Unit = {
     val cols: Array[String] = table.columns.dropRight(1) //discard class column
     val rddTable = table.rdd
     mainAlgorithm(rddTable, cols)
   }
 
-  def dataPreparation(rddTable: RDD[Row], cols: Array[String]) : (RDD[(String, (Int, Int, Double))], RDD[(String, (Int, Int))], RDD[((String, String),( Int, Int))]) = {
+  def dataPreparation(rddTable: RDD[Row], cols: Array[String]) :RDD[((String, String),( Int, Int))] = {
 
     /*
     * Map of splitpoints (mean of adiacent values) for attributes, if attr have only one value we discard it
@@ -47,7 +44,6 @@ class MapReduceAlgorithm(table : DataFrame){
         j = i-1
       }
 
-
       if(splitpoints.length > 0)  //if attr have more than 1 value
         attrSplitPoints += (col -> splitpoints)
       else
@@ -73,13 +69,11 @@ class MapReduceAlgorithm(table : DataFrame){
       pairs
     }
 
-
     // count table respect to (attr splitvalue, label)
-    val countTableValue = attribTable.flatMap { case (attr, (row_id, label, value)) =>
+    val countTableSplit = attribTable.flatMap { case (attr, (row_id, label, value)) =>
 
 
-      var valuesAttr = attrSplitPoints(attr)
-
+      val valuesAttr = attrSplitPoints(attr)
 
       val pairs = valuesAttr.map( //divide in < and >= instances taking in account class label for each splitpoint of this attr
 
@@ -98,27 +92,28 @@ class MapReduceAlgorithm(table : DataFrame){
     }.reduceByKey(_ + _).map { case ((attr, label, value), count) => ((attr, value), (label, count)) }
 
 
+
     //count table respect to (attr, label) - count for each attr the instances with same label
     val countTable = attribTable.map { case (attr, (row_id, label, value)) => ((attr, label), 1)}
       .reduceByKey(_ + _).map { case ((attr, label), count) => (attr, (label, count)) }
 
 
-    (attribTable, countTable, countTableValue)
+    countTableSplit
 
 
   }
 
-  private def mainAlgorithm(rddTable: RDD[Row], cols: Array[String]): Unit ={
+  private def mainAlgorithm(rddTable: RDD[Row], cols: Array[String]): Unit = {
 
-    val (attribTable, countTable, countTableValue) = dataPreparation(rddTable, cols)
+    val countTableValue = dataPreparation(rddTable, cols)
 
     //entropy to understand if we arrived in the situation of only or most of instance of a class. (0 is purity)
-    val entropy = calcEntropyTable(rddTable)
+    val (entropy, max_class) = calcEntropyTable(rddTable)
 
-    if(entropy < 0.03)    //stop check
+    if(entropy < 0.03) //stop check
       return
 
-    val (bestAttr, bestValue) = findBestSplit(attribTable, countTable, countTableValue,rddTable.count().toInt)
+    val (bestAttr, bestValue) = findBestSplit(countTableValue, entropy)
 
     // create 2 child table filtering from parent for each split (2)
     val greaterAttrTable = rddTable.filter {
@@ -142,7 +137,7 @@ class MapReduceAlgorithm(table : DataFrame){
   }
 
 
-  private def calcEntropyTable(rddTable: RDD[Row]): Double = {
+  private def calcEntropyTable(rddTable: RDD[Row]): (Double, (String, Int)) = {
 
     val allValue = rddTable.count().toInt
     val log2: Double => Double = (x: Double) => {
@@ -152,12 +147,17 @@ class MapReduceAlgorithm(table : DataFrame){
     val calcEntropy: Double => Double = (p: Double) => {
       -p * log2(p)
     }
+
     val countLabelClass = rddTable.map{row =>
 
       val index = row.schema.fieldIndex("label")
-      (row(index).toString.toDouble, 1)
+      (row(index).toString, 1)
     }.reduceByKey(_+_)
 
+    val maxKey: (String, Int) = countLabelClass.max()(new Ordering[(String, Int)]() {
+      override def compare(x: (String, Int), y: (String, Int)): Int =
+        Ordering[Int].compare(x._2, y._2)
+    })
 
     val countLabelAll = countLabelClass.map{ case(label,count) => (label,(count,allValue))}
 
@@ -171,10 +171,9 @@ class MapReduceAlgorithm(table : DataFrame){
     }.reduce(_+_)
 
     println("entropy: "+entropy)
-    entropy.abs
+    (entropy.abs, maxKey)
   }
-  private def findBestSplit(attribTable: RDD[(String, (Int, Int, Double))], countTable: RDD[(String, (Int, Int))],
-                            countTableValue: RDD[((String, String), (Int, Int))], allValue: Int): (String, String) = {
+  private def findBestSplit(countTableValue: RDD[((String, String), (Int, Int))], entropyAll : Double): (String, String) = {
 
     val log2: Double => Double = (x: Double) => {
       if (x.abs == 0.0) 0.0 else log10(x) / log10(2.0)
@@ -183,65 +182,57 @@ class MapReduceAlgorithm(table : DataFrame){
     val calcEntropy: Double => Double = (p: Double) => {
       -p * log2(p)
     }
-    val allTableValue = countTableValue.map{case ((attr,value),(label,count)) => ((attr,value),count)}
+
+    val allTableSplit = countTableValue.map{case ((attr,value),(label,count)) => ((attr,value),count)}
       .reduceByKey(_+_)
+
+    val allTableValue = allTableSplit.map { case ((attr, value), allSplit) =>
+
+      if (value.contains(">="))
+        ((attr, value.split(">=").apply(0)),allSplit)
+      else
+        ((attr, value.split("<").apply(0)), allSplit)
+
+    }.reduceByKey(_ + _)
+
 
     //join between countTable for splitvalues and allTable for splitvalues
     val infoTable = countTableValue
-      .join(allTableValue)
-
-
-    val infoTableFlat = countTable.map{case(attr,(label,count)) => (attr,(label,count,allValue))}
-
-    //compute entropy for each attribute
-    val entropyTable = infoTableFlat.map{ case(attr,(label,count,all)) =>
-
-      val p: Double = count.toDouble / all.toDouble
-
-      val entropy :Double = calcEntropy(p)
-
-      (attr, entropy)
-    }.reduceByKey(_+_)
-
-    // compute info and splitinfo for each (attr, splitvalue)
-    def computeInfoSplit(rdd: ((String, String),((Int,Int),Int))) : ((String,String),(Double, Double)) = {
-
-      rdd match {
-        case ((attr: String, value: String),((label: Int, count: Int), all: Int)) =>
-
-          val p: Double = count.toDouble / all.toDouble
-          val info: Double = p * calcEntropy(p)
-          val splitInfo: Double = -p * log2(p)
-
-          if (value.contains(">="))   //we want to merge info and splitinfo for a splitvalue (left < and right >= split)
-            ((attr, value.split(">=").apply(0)),(info: Double, splitInfo: Double))
-          else{
-            ((attr, value.split("<").apply(0)),(info: Double, splitInfo: Double))
-          }
-
-
-      }
-    }
+      .join(allTableSplit)
 
     //gainratio table
     val gainRatioTable = infoTable
-      .map(computeInfoSplit)
-      .reduceByKey({
-        case ((info1: Double, split1: Double), (info2: Double, split2: Double)) =>
+      .map {
+        case ((attr, value), ((_, count), all)) =>
 
-          (info1 + info2: Double, split1 + split2: Double)
-      })
-      .map{ case ((attr,value), (info,split)) => (attr, (value,info,split))}
-      .join(entropyTable)
-      .map{ case (attr,((value: String, info: Double, split: Double), entropy:Double)) =>
+          val p: Double = count.toDouble / all.toDouble
+
+          val entropyAttr: Double = calcEntropy(p)
+
+          if (value.contains(">="))
+            ((attr, value.split(">=").apply(0)), (all,entropyAttr))
+          else
+            ((attr, value.split("<").apply(0)), (all,entropyAttr))
+
+      }
+      .reduceByKey{ case((all,entropy1),(_,entropy2)) => (all, entropy1 + entropy2)}
+      .join(allTableValue)
+      .map{
+        case((attr,value),((allSplit, entropySplit),allValue)) =>
+
+          // compute info and splitinfo for each (attr, splitvalue)
+          val p = allSplit.toDouble / allValue.toDouble
+          val info = p * entropySplit
+          val splitinfo = -p * log2(p)
+          ((attr,value),(info,splitinfo))
+      }
+      .reduceByKey{ case((info1, splitinfo1), (info2, splitinfo2)) => (info1+info2, splitinfo1+splitinfo2)}
+      .map{ case ((attr,value), (info,split)) =>
 
         //println(entropy+" "+info)
-        val gain :Double = entropy-info
+        val gain :Double = entropyAll-info
 
-        if(split.abs == 0.0)
-          ((attr,value), 0.0)
-        else
-          ((attr,value), gain/split)
+        ((attr,value), gain/split)
     }
 
 
