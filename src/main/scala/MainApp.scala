@@ -21,10 +21,24 @@ object MainApp {
 
 
   def main(args: Array[String]): Unit = {
-    val path = "/Users/luca/Desktop/tree.txt"
 
+    val decisionTreePath = "/Users/andreamancini/decisiontree"
+    var directoryStream = Files.list(Paths.get(decisionTreePath))
+    var fileList = directoryStream.toArray
 
-    val tree = DecisionTree.fromFile(path)
+    val currentDir = new File(".").getCanonicalPath
+    println(s"currentDir $currentDir")
+
+    var tree: DecisionTree = null
+    fileList.foreach { path =>
+      if (path.asInstanceOf[Path].toString == Paths.get(decisionTreePath).resolve("tree.txt").toString) {
+
+        tree = DecisionTree.fromFile(decisionTreePath+"/tree.txt")
+      }
+    }
+
+    if(tree != null)
+      return
     /*
     var node : DecisionTree = Node("Prova",0.3,null,null,None)
     var tmp = node
@@ -65,12 +79,12 @@ object MainApp {
 
 
     // Use the Files.list method to get a Stream of paths in the directory
-    val directoryStream = Files.list(Paths.get(datasetPath))
+    directoryStream = Files.list(Paths.get(datasetPath))
 
     var isDatasetPresent: Boolean = false
 
     // Convert the Stream to a Scala List and print the file names
-    val fileList = directoryStream.toArray
+    fileList = directoryStream.toArray
     fileList.foreach { path =>
       if (path.asInstanceOf[Path].toString == Paths.get(datasetPath).resolve(csv).toString) {
         isDatasetPresent = true
@@ -90,7 +104,8 @@ object MainApp {
 
     val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm(dataset)
     val decTree = dataPreparation.initAlgorithm()
-    decTree.asInstanceOf[Node].writeRulesToFile("/Users/luca/Desktop/treeOutput.txt")
+    decTree.asInstanceOf[Node].writeRulesToFile("/Users/andreamancini/decisiontree/treeOutput.txt")
+
     /*
     println("Read dataset!")
     // Read the dataset
