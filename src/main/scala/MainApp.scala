@@ -24,7 +24,7 @@ object MainApp {
 
     val decisionTreePath = "/Users/luca/Desktop/tree.txt"
 
-    val tree = DecisionTree.fromFile(decisionTreePath)
+    //val tree = DecisionTree.fromFile(decisionTreePath)
 
     //var directoryStream = Files.list(Paths.get(decisionTreePath))
     //var fileList = directoryStream.toArray
@@ -171,6 +171,7 @@ object MainApp {
     (truePositives, falsePositives, falseNegatives)
   }
 
+  /*
   object MetricsCalculator {
     def main(args: Array[String]): Unit = {
       // Example: True labels and predicted labels
@@ -195,8 +196,7 @@ object MainApp {
       println(s"Recall: $recall")
       println(s"F1-Score: $f1Score")
     }
-
-  }
+  }*/
 
 
 

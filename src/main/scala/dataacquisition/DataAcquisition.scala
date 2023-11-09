@@ -43,6 +43,87 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     var finalDataset: DataFrame = null
 
+    // VERSIONE DISTRIBUITA
+    val datasetFrames: Map[String, DataFrame] = columnsMap.map {
+      case (datasetName, columnName) =>
+        var datasetDF: DataFrame = spark.read.option("header", "true").option("escape","\"").option("multiLine","true").option("sep", ",").option("charset", "UTF-8").csv(Paths.get(downloadPath).resolve(datasetName).resolve(csvPerDataset(datasetName)).toString)
+
+
+        val columnNames: Array[String] = datasetDF.columns
+
+        // Print column names
+        columnNames.foreach { colName =>
+          if (colName == "label" || colName == "Label" || colName == "Ground Label") {
+            // Select rows where the value
+            datasetDF = datasetDF.filter(col(colName) === "fake" || col(colName) === "FAKE" || col(colName) === 1)
+          }
+
+          if (colName == "language") {
+            // Select rows where the value
+            datasetDF = datasetDF.filter(col(colName) === "english")
+          }
+        }
+        var textDF: DataFrame = null
+        columnNames.foreach { colName =>
+          // controllare sul nome del dataset
+          if (colName == "text" || colName == "text") { // perchè due volte, uno è un typo?
+            // Split the column and explode to create new rows
+            val explodedDF = datasetDF.withColumn("split", split(col("text"), "\\."))
+              .select(col("split"))
+
+            var resultDF = explodedDF.select(explode(col("split")).alias("text"))
+            resultDF = resultDF.withColumnRenamed("text", "title")
+            // Add a new column
+            textDF = resultDF.withColumn("label", expr("1"))
+          }
+        }
+
+        // Select only specific columns
+        val selectedColumns: Array[String] = Array(columnName)
+        datasetDF = datasetDF.select(selectedColumns.map(col): _*)
+
+        // CONTROLLARE CHE NON FACCIA CAZZATE!!!
+        // Remove rows with missing values
+        datasetDF = datasetDF.na.drop(selectedColumns)
+        println(datasetDF.count())
+        // Drop duplicates based on all columns
+        datasetDF = datasetDF.dropDuplicates(selectedColumns)
+        println(datasetDF.count())
+        // Rename columns
+        val renamedColumns: Map[String, String] = Map(columnName -> textColumn)
+
+        // Check if a column is present
+        val isColumnPresent: Boolean = datasetDF.columns.contains(textColumn)
+
+        for ((oldName, newName) <- renamedColumns) {
+          if (!isColumnPresent) {
+            datasetDF = datasetDF.withColumnRenamed(oldName, newName)
+          }
+        }
+
+        if (datasetName == "million-headlines") {
+          // Add a new column
+          datasetDF = datasetDF.withColumn("label", expr("0"))
+        }
+        else {
+          // Add a new column
+          datasetDF = datasetDF.withColumn("label", expr("1"))
+        }
+
+
+        // Union the DataFrames
+        val unionedDF: DataFrame = textDF.union(datasetDF)
+
+        //val selectedColumnDF = datasetDF.select(col(columnName))
+
+        (datasetName, unionedDF)
+    }
+    val unionedDataset: DataFrame = datasetFrames.values.reduce(_ union _)
+    unionedDataset.show()
+
+
+    // SOPRA STO FACENDO LA VERSIONE DISTRIBUITA
+    /*
     for((dataset, column) <- columnsMap) {
       println(csvPerDataset(dataset))
       println(csvPerDataset.get(dataset))
@@ -145,7 +226,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
         finalDataset = finalDataset.union(df)
       }
     }
-
+    */
 
     // Read the JSONL file into a DataFrame
     /*var df_jsonl: DataFrame = spark.read.json("./data/data.jsonl")
@@ -172,6 +253,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       StructField("label", IntegerType, true)
     ))
     finalDataset = spark.createDataFrame(spark.sparkContext.parallelize(data_2), schema_2)
+    finalDataset = unionedDataset
 
     println("Final Dataset creation finished!")
 
@@ -353,20 +435,22 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     // Create a sequence of Row objects representing the data
     var data: Seq[Row] = Seq()
 
+    var row_seq: Seq[Any] = Seq()
+    var newRow: Row = null
+
     var c = 0
     rescaledData.select("features", "label").show()
-    rescaledData.select("features", "label").collect().foreach {
+    val sel: DataFrame = rescaledData.select("features", "label")
+    sel.rdd.foreach {  // .collect()
       case Row(features: Vector, label: Integer) =>
-        var row_seq: Seq[Any] = Seq()
-        var newRow: Row = null
         println(s"vector: $features")
         // Get the length of the vector
         val vectorLength = features.size
         println(s"length: $vectorLength")
         // Iterate over all elements of the vector
-        for (index <- 0 until vectorLength) {
+        for (index <- 0 until vectorLength) { // VEDERE SE FARLO DISTRIBUITO
           val value = features(index)
-          println(s"index: $index,   value: $value")
+          //println(s"index: $index,   value: $value")
           row_seq = row_seq :+ value
         }
         row_seq = row_seq :+ label
