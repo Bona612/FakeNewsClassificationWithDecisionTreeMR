@@ -6,27 +6,65 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{DoubleType, FloatType, IntegerType, StringType, StructField, StructType}
 
-import java.nio.file.Paths
+import java.nio.file.{Files, Paths}
 import scala.collection.mutable.ListBuffer
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.feature.StopWordsRemover
 import com.johnsnowlabs.nlp.annotator.{LemmatizerModel, Stemmer, StopWordsCleaner, Tokenizer}
-import com.johnsnowlabs.nlp.annotators.EnglishStemmer
+//import com.johnsnowlabs.nlp.annotators.EnglishStemmer
 import org.apache.spark.sql.catalyst.ScalaReflection.universe.typeOf
 import org.apache.spark.ml.feature.Word2Vec
 import org.apache.spark.ml.linalg.Vector
-import org.apache.spark.ml.feature.{CountVectorizer, IDF} // , Tokenizer
+import org.apache.spark.ml.feature.{CountVectorizer, IDF}
+
+import java.io.File
+import java.security.CodeSource
+import scala.sys.process._
 
 
 class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, String], columnsMap: Map[String, String], textColumn: String, downloadPath: String, datasetPath: String, csv: String, spark: SparkSession) {
+
+  def getCurrentDirectory(): String = {
+    val codeSource: CodeSource = getClass.getProtectionDomain.getCodeSource
+    val jarFileLocation = if (codeSource != null) codeSource.getLocation.toURI.getPath else ""
+    val absolutePath = new java.io.File(jarFileLocation).getParentFile.getAbsolutePath
+    absolutePath
+  }
 
   def loadDataset(): DataFrame = {
 
     var datasetPathList: ListBuffer[String] = ListBuffer()
 
+    /*var cd = "hadoop dfs -ls hdfs://" + getCurrentDirectory()
+    var cdExitCode = cd !
+
+    println("cuurent dir exit code: " + cdExitCode)*/
+    var cd = "hadoop dfs -ls hdfs:///user/bocca"
+    var cdExitCode = cd !
+
+    println("tmp- cuurent dir exit code: " + cdExitCode)
+    /*cd = "hadoop dfs -ls hdfs:///tmp"
+    cdExitCode = cd !
+
+    println("bocca- cuurent dir exit code: " + cdExitCode)
+    cd = "hadoop dfs -ls hdfs:///user/root"
+    cdExitCode = cd !
+
+    println("root- cuurent dir exit code: " + cdExitCode)
+    cd = "hadoop dfs -ls hdfs:///user/dataproc"
+    cdExitCode = cd !
+
+    println("dataproc- cuurent dir exit code: " + cdExitCode)*/
+
+
+    val downloadDirCommand = "hadoop fs -mkdir hdfs:///user/bocca/download"
+    val downloadDirCommandExitCode = downloadDirCommand !
+
+    println("hadoop dir dataset creation exit code: " + downloadDirCommandExitCode)
+
     datasetList.foreach { dataset: String =>
       // Creating an instance of MyClass inside AnotherObject
-      val downloader = new Downloader(dataset, csvPerDataset, downloadPath, spark)
+      val downloader = new Downloader(dataset, csvPerDataset, ".", spark)
 
       // Calling a method on the created instance
       val datasetPath: String = downloader.downloadDataset()
@@ -46,8 +84,10 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     // VERSIONE DISTRIBUITA
     val datasetFrames: Map[String, DataFrame] = columnsMap.map {
       case (datasetName, columnName) =>
-        var datasetDF: DataFrame = spark.read.option("header", "true").option("escape","\"").option("multiLine","true").option("sep", ",").option("charset", "UTF-8").csv(Paths.get(downloadPath).resolve(datasetName).resolve(csvPerDataset(datasetName)).toString)
-
+        val currentDir = getCurrentDirectory()
+        println(currentDir)
+        var datasetDF: DataFrame = spark.read.option("header", "true").option("escape","\"").option("multiLine","true").option("sep", ",").option("charset", "UTF-8").csv(s"hdfs:///user/bocca/download/$datasetName/" + csvPerDataset(datasetName))
+        println("così va bene!!!")
 
         val columnNames: Array[String] = datasetDF.columns
 
@@ -531,7 +571,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
 
     // Specify the path where you want to write the CSV file
-    val outputPath = Paths.get(datasetPath).resolve(csv).toString //
+    val outputPath = s"$datasetPath/$csv" //
     /*
     // Write the DataFrame to CSV
     finalDataset.write

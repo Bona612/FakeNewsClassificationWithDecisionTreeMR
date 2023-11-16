@@ -1,5 +1,3 @@
-import com.johnsnowlabs.nlp.{DocumentAssembler, SparkNLP}
-import com.johnsnowlabs.nlp.annotator.Tokenizer
 
 class DataPreprocessing {
 

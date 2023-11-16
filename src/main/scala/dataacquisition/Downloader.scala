@@ -6,12 +6,21 @@ import scala.language.postfixOps
 import scala.sys.process._
 import dataacquisition.Unzipper
 
+import java.io.File
 import java.nio.file.{Files, Path, Paths}
+import java.security.CodeSource
 
 class Downloader(val kaggleDataset: String, val csvPerDataset: Map[String, String], val downloadPath: String, val spark: SparkSession) {
 
   // Set the path to your Kaggle API token file
   final val kaggleApiTokenPath = "./token/kaggle.json"
+
+  def getCurrentDirectory() : String = {
+    val codeSource: CodeSource = getClass.getProtectionDomain.getCodeSource
+    val jarFileLocation = if (codeSource != null) codeSource.getLocation.toURI.getPath else ""
+    val absolutePath = new java.io.File(jarFileLocation).getParentFile.getAbsolutePath
+    absolutePath
+  }
 
   def downloadDataset(): String = {
     var kaggleDatasetName = ""
@@ -28,18 +37,49 @@ class Downloader(val kaggleDataset: String, val csvPerDataset: Map[String, Strin
       println(s"Original: $kaggleDataset, Character '/' not found.")
     }
 
+    val currentDir = getCurrentDirectory()
+    // val currentDir = new File(".").getCanonicalPath
 
     // Use the Kaggle API to download the dataset
-    val command = s"kaggle datasets download -d $kaggleDataset -p $downloadPath --force"
+    val command = s"kaggle datasets download -d $kaggleDataset -p $currentDir --force"
     val exitCode = command !
 
     // Check the exit code to see if the command was successful
     if (exitCode == 0) {
       println("Dataset downloaded successfully!")
 
-      println(s"$downloadPath/$kaggleDatasetName/")
-      val unzipper = new Unzipper(s"$downloadPath/$kaggleDatasetName.zip", s"$downloadPath/$kaggleDatasetName/", spark)
+      val directoryStream2 = Files.list(Paths.get("."))
+
+      // Convert the Stream to a Scala List and print the file names
+      val fileList2 = directoryStream2.toArray
+      fileList2.foreach { path =>
+        println(path)
+      }
+      val directoryStream3 = Files.list(Paths.get(currentDir))
+
+      // Convert the Stream to a Scala List and print the file names
+      val fileList3 = directoryStream3.toArray
+      fileList3.foreach { path =>
+        println(path)
+      }
+
+
+      println(s"$currentDir/$kaggleDatasetName/")
+      val unzipper = new Unzipper(s"$currentDir/$kaggleDatasetName.zip", s"$currentDir/$kaggleDatasetName/", spark)
       unzipper.unzip()
+
+
+      val downloadDirCommand = s"hadoop fs -mkdir hdfs:///user/bocca/download/$kaggleDatasetName"
+      val downloadDirCommandExitCode = downloadDirCommand !
+
+      println("hadoop dir dataset creation exit code: " + downloadDirCommandExitCode)
+
+      //Copy files from local file system to HDFS
+      val command = s"hadoop fs -copyFromLocal $currentDir/$kaggleDatasetName hdfs:///user/bocca/download/$kaggleDatasetName"
+      val exitCode2 = command !
+
+      println("hadoop exit code: " + exitCode2)
+
       println("Dataset unzipped successfully!")
 
       // Use the Files.list method to get a Stream of paths in the directory

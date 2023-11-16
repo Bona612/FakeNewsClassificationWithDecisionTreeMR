@@ -22,8 +22,10 @@ object MainApp {
 
   def main(args: Array[String]): Unit = {
 
-    val decisionTreePath = "/Users/luca/Desktop/tree.txt"
+    val inputPath = args(0)
+    val outputPath = args(1)
 
+    val decisionTreePath = "gs://fnc-bucket-final" // "/Users/luca/Desktop/tree.txt"
     //val tree = DecisionTree.fromFile(decisionTreePath)
 
     //var directoryStream = Files.list(Paths.get(decisionTreePath))
@@ -31,6 +33,15 @@ object MainApp {
 
     val currentDir = new File(".").getCanonicalPath
     println(s"currentDir $currentDir")
+
+    println(s"Input Path $inputPath")
+    println(inputPath)
+    println(s"Output Path $outputPath")
+    println(outputPath)
+    // NON USARE Paths.get() per GCS
+    println(Paths.get(inputPath).toString)
+    println(Paths.get(inputPath).resolve("data/download").toString)
+    println(s"$inputPath/data/download")
 
     /*
     var tree: DecisionTree = null
@@ -57,8 +68,8 @@ object MainApp {
     //tree.asInstanceOf[Node].writeRulesToFile("/Users/luca/Desktop/treeOutput.txt")
 
     println("Start")
-    val downloadPath: String = "./data/download"
-    val datasetPath = "./data/dataset"
+    val downloadPath: String = "data/download"
+    val datasetPath = "data/dataset"
     val csv = "dataset.csv"
 
     /*
@@ -67,22 +78,27 @@ object MainApp {
     // Create a Map
     val csvPerDataset: Map[String, String] = Map("textdb3" -> "fake_or_real_news.csv")
     val columnsMap: Map[String, String] = Map("textdb3" -> "title")
+    */
+
 
     // Creating a list of strings
-    val kaggleDatasetList: List[String] = List("therohk/million-headlines", "clmentbisaillon/fake-and-real-news-dataset", "mrisdal/fake-news", "hassanamin/textdb3", "jruvika/fake-news-detection", "saurabhshahane/fake-news-classification", "stevenpeutz/misinformation-fake-news-text-dataset-79k", "jainpooja/fake-news-detection", "niranjanank/fake-news-log", "mohammadaflahkhan/fake-news-dataset-combined-different-sources")
+    // "jruvika/fake-news-detection",
+    val kaggleDatasetList: List[String] = List("therohk/million-headlines", "clmentbisaillon/fake-and-real-news-dataset", "mrisdal/fake-news", "hassanamin/textdb3", "saurabhshahane/fake-news-classification", "stevenpeutz/misinformation-fake-news-text-dataset-79k", "jainpooja/fake-news-detection", "niranjanank/fake-news-log", "mohammadaflahkhan/fake-news-dataset-combined-different-sources")
     // Create a Map
-    val csvPerDataset: Map[String, String] = Map("million-headlines" -> "abcnews-date-text.csv", "fake-and-real-news-dataset" -> "Fake.csv", "fake-news" -> "fake.csv", "textdb3" -> "fake_or_real_news.csv", "fake-news-detection" -> "data.csv", "fake-news-classification" -> "WELFake_Dataset.csv", "misinformation-fake-news-text-dataset-79k" -> "DataSet_Misinfo_FAKE.csv", "fake-news-detection" -> "Fake.csv", "fake-news-log" -> "train.csv", "fake-news-dataset-combined-different-sources" -> "PreProcessedData.csv")
-    val columnsMap: Map[String, String] = Map("million-headlines" -> "headline_text", "fake-and-real-news-dataset" -> "title", "fake-news" -> "title", "textdb3" -> "title", "fake-news-detection" -> "Headline", "fake-news-classification" -> "title", "misinformation-fake-news-text-dataset-79k" -> "text", "fake-news-detection" -> "title", "fake-news-log" -> "title", "fake-news-dataset-combined-different-sources" -> "title")
+    // "fake-news-detection" -> "data.csv",
+    val csvPerDataset: Map[String, String] = Map("million-headlines" -> "abcnews-date-text.csv", "fake-and-real-news-dataset" -> "Fake.csv", "fake-news" -> "fake.csv", "textdb3" -> "fake_or_real_news.csv", "fake-news-classification" -> "WELFake_Dataset.csv", "misinformation-fake-news-text-dataset-79k" -> "DataSet_Misinfo_FAKE.csv", "fake-news-detection" -> "Fake.csv", "fake-news-log" -> "train.csv", "fake-news-dataset-combined-different-sources" -> "PreProcessedData.csv")
+    // , "fake-news-detection" -> "Headline"
+    val columnsMap: Map[String, String] = Map("million-headlines" -> "headline_text", "fake-and-real-news-dataset" -> "title", "fake-news" -> "title", "textdb3" -> "title", "fake-news-classification" -> "title", "misinformation-fake-news-text-dataset-79k" -> "text", "fake-news-detection" -> "title", "fake-news-log" -> "title", "fake-news-dataset-combined-different-sources" -> "title")
     val textColumn: String = "title"
 
-    */
+    /*
     // Creating a list of strings
     val kaggleDatasetList: List[String] = List("mrisdal/fake-news")
     // Create a Map
     val csvPerDataset: Map[String, String] = Map("fake-news" -> "fake.csv")
     val columnsMap: Map[String, String] = Map("fake-news" -> "title")
     val textColumn: String = "title"
-
+    */
 
     // Use the Files.list method to get a Stream of paths in the directory
     //directoryStream = Files.list(Paths.get(datasetPath))
@@ -103,12 +119,30 @@ object MainApp {
     var dataset: DataFrame = null
     // If the dataset isn't created, load the dataset and save it
     if (!isDatasetPresent) {
-      val dataAcquisition: DataAcquisition = new DataAcquisition(kaggleDatasetList, csvPerDataset, columnsMap, textColumn, downloadPath, datasetPath, csv, spark)
+      val dataAcquisition: DataAcquisition = new DataAcquisition(kaggleDatasetList, csvPerDataset, columnsMap, textColumn, s"$inputPath/$downloadPath", s"$inputPath/$datasetPath", csv, spark)
       dataset = dataAcquisition.loadDataset()
       println("Dataset loaded succesfully!")
     }
+
     print(dataset)
 
+
+    // write store datset in a directory of .csv, one csv file for each partition
+    // coalesce instead, allow to select the number of partition that you want
+
+    // Save the DataFrame as a CSV file
+    //dataset.write.csv(Paths.get(datasetPath).resolve(csv).toString)
+
+    // Coalesce to a single partition
+    // Save as a single CSV file
+    //dataset.coalesce(1).write.csv(Paths.get(datasetPath).resolve(csv).toString)
+    dataset.coalesce(1).write.csv(s"./$csv")
+
+    s"gsutil cp ./$csv gs://$outputPath/$csv".!!
+
+    // MOMENTANEAMENTE COMMENTO TUTTO SOTTO PER FARE UNA PROVA DI CREAZIONE DEL DATASET
+
+    /*
     val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm(dataset)
     val decTree = dataPreparation.initAlgorithm()
     decTree.asInstanceOf[Node].writeRulesToFile("/Users/luca/Desktop/treeOutput.txt")
@@ -142,6 +176,8 @@ object MainApp {
     println(s"Precision: $precision")
     println(s"Recall: $recall")
     println(s"F1-Score: $f1Score")
+
+     */
 
     println("Stopping Spark")
     // Stop the Spark session
