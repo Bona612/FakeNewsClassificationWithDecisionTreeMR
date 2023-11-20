@@ -153,9 +153,7 @@ object MainApp {
     // Conta il numero di righe per ciascuna classe
     val classCounts = dataset.groupBy("label").count()
     println("ClassCounts" , classCounts)
-/*
 
-     */
      // Calcola il numero massimo di righe da prendere per ciascuna label nel set di addestramento
     val maxRowsPerLabel = dataset.groupBy("label").agg(count("label").alias("count")).agg(min("count")).collect()(0).getLong(0).toInt
 
