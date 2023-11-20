@@ -1,7 +1,7 @@
 package dataacquisition
 
 import com.johnsnowlabs.nlp.DocumentAssembler
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, Encoders, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{DoubleType, FloatType, IntegerType, StringType, StructField, StructType}
@@ -667,6 +667,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     // Get the list of words in the vocabulary
     val vocabulary = cvModel.vocabulary
+    val headers = vocabulary :+ "label"
 
     var schema_seq: Seq[StructField] = Seq()
 
@@ -684,6 +685,38 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     var row_seq: Seq[Any] = Seq()
     var newRow: Row = null
 
+
+    // Define the schema for the new DataFrame
+    val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
+/*
+    // Extract values from the "features" column and create a new DataFrame
+    // .select("features").as[Vector]
+    // .select("features", "label").as[(Vector, Int)]
+    val extractedDF = rescaledData.flatMap { case Row(features: Vector, label: Integer) =>
+      // Convert the vector to a Seq of Double values
+      val featureValues = features.toArray.toSeq
+      // Append the label to the sequence
+        // Return a Row with feature values and label
+      Row.fromSeq(featureValues)
+    }
+      //.toDF(schemaFinal: _*) // Use the header names directly
+*/
+
+    // Define a function to create a new dataframe for each row
+    def createNewDataFrame(features: Vector, label: Integer): DataFrame = {
+      val newRow = Row(features.toArray.toSeq, label)
+
+      // Create a schema for the new dataframe
+      val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
+
+      // Create the new dataframe
+      spark.createDataFrame(spark.sparkContext.parallelize(Seq(newRow)), schemaFinal)
+    }
+
+    // Apply the function to each row and union the results
+    val final_dataset = rescaledData.rdd.map{case Row(features: Vector, label: Integer) => createNewDataFrame(features, label)}.reduce(_ union _)
+
+/*
     var c = 0
     rescaledData.select("features", "label").show()
     val sel: DataFrame = rescaledData.select("features", "label")
@@ -708,18 +741,21 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
         println(s"count: $c")
         c = c + 1
-
+/*
       case Row(num: Int, text: Seq[_], features: Vector) =>
       println(s"final_tokens: [${text.mkString(", ")}] => \nVector: $features\n")
     case Row(num: Int, text: Vector, features: Vector) =>
       println(s"final_tokens: [${text}] => \nVector: $features\n")
     case Row(num: Int, text: Seq[_], features: Seq[_]) =>
       println(s"final_tokens: [${text.mkString(", ")}] => \nVector: $features\n")
+ */
     }
 
     println(data)
     // Create the DataFrame
     val final_dataset = spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
+
+ */
     final_dataset.show()
 
     /*
