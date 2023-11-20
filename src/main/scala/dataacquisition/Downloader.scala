@@ -69,16 +69,17 @@ class Downloader(val kaggleDataset: String, val csvPerDataset: Map[String, Strin
       unzipper.unzip()
 
 
-      val downloadDirCommand = s"hadoop fs -mkdir hdfs:///user/bocca/download/$kaggleDatasetName"
+      /*val downloadDirCommand = s"hdfs dfs -mkdir hdfs:///user/fnc_user/download/$kaggleDatasetName"
       val downloadDirCommandExitCode = downloadDirCommand !
 
-      println("hadoop dir dataset creation exit code: " + downloadDirCommandExitCode)
+      println("hadoop dir dataset creation exit code: " + downloadDirCommandExitCode)*/
 
       //Copy files from local file system to HDFS
-      val command = s"hadoop fs -copyFromLocal $currentDir/$kaggleDatasetName hdfs:///user/bocca/download/$kaggleDatasetName"
+      val command = s"hdfs dfs -copyFromLocal $currentDir/$kaggleDatasetName hdfs:///user/fnc_user/download"
       val exitCode2 = command !
 
-      println("hadoop exit code: " + exitCode2)
+
+      println("hdfs exit code: " + exitCode2)
 
       println("Dataset unzipped successfully!")
 

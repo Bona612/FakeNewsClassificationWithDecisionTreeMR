@@ -35,32 +35,34 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     var datasetPathList: ListBuffer[String] = ListBuffer()
 
-    /*var cd = "hadoop dfs -ls hdfs://" + getCurrentDirectory()
+    /*var cd = "hdfs dfs -ls hdfs://" + getCurrentDirectory()
     var cdExitCode = cd !
 
     println("cuurent dir exit code: " + cdExitCode)*/
-    var cd = "hadoop dfs -ls hdfs:///user/bocca"
+    var cd = "hdfs dfs -ls hdfs:///user/"
     var cdExitCode = cd !
 
-    println("tmp- cuurent dir exit code: " + cdExitCode)
-    /*cd = "hadoop dfs -ls hdfs:///tmp"
+    println("tmp- current dir exit code: " + cdExitCode)
+    /*cd = "hdfs dfs -ls hdfs:///tmp"
     cdExitCode = cd !
 
     println("bocca- cuurent dir exit code: " + cdExitCode)
-    cd = "hadoop dfs -ls hdfs:///user/root"
+    cd = "hdfs dfs -ls hdfs:///user/root"
     cdExitCode = cd !
 
     println("root- cuurent dir exit code: " + cdExitCode)
-    cd = "hadoop dfs -ls hdfs:///user/dataproc"
+    cd = "hdfs dfs -ls hdfs:///user/dataproc"
     cdExitCode = cd !
 
     println("dataproc- cuurent dir exit code: " + cdExitCode)*/
 
+    val userDirCommand = "hdfs dfs -mkdir hdfs:///user/fnc_user"
+    val userDirCommandExitCode = userDirCommand !
 
-    val downloadDirCommand = "hadoop fs -mkdir hdfs:///user/bocca/download"
+    val downloadDirCommand = "hdfs dfs -mkdir hdfs:///user/fnc_user/download"
     val downloadDirCommandExitCode = downloadDirCommand !
 
-    println("hadoop dir dataset creation exit code: " + downloadDirCommandExitCode)
+    println("hdfs dir dataset creation exit code: " + downloadDirCommandExitCode)
 
     datasetList.foreach { dataset: String =>
       // Creating an instance of MyClass inside AnotherObject
@@ -86,7 +88,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       case (datasetName, columnName) =>
         val currentDir = getCurrentDirectory()
         println(currentDir)
-        var datasetDF: DataFrame = spark.read.option("header", "true").option("escape","\"").option("multiLine","true").option("sep", ",").option("charset", "UTF-8").csv(s"hdfs:///user/bocca/download/$datasetName/" + csvPerDataset(datasetName))
+        var datasetDF: DataFrame = spark.read.option("header", "true").option("escape","\"").option("multiLine","true").option("sep", ",").option("charset", "UTF-8").csv(s"hdfs:///user/fnc_user/download/$datasetName/" + csvPerDataset(datasetName))
         println("così va bene!!!")
 
         val columnNames: Array[String] = datasetDF.columns
@@ -152,7 +154,11 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
 
         // Union the DataFrames
-        val unionedDF: DataFrame = textDF.union(datasetDF)
+        var unionedDF: DataFrame = null
+        if(textDF != null)
+          unionedDF = textDF.union(datasetDF)
+        else
+          unionedDF = datasetDF
 
         //val selectedColumnDF = datasetDF.select(col(columnName))
 
@@ -415,7 +421,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     columnNames.foreach(println)*/
     val tfidf_df = results.select("final_tokens", "label")
 
-    //dfOnlyWhitespace.write.format("csv").save("C:\\Users\\bocca\\Desktop\\laurea_magistrale_informatica\\ScalableCloud\\progetto\\FakeNewsClassificationWithDecisionTreeMR\\data\\dataset\\dataset.csv")
+    //dfOnlyWhitespace.write.format("csv").save("C:\\Users\\fnc_user\\Desktop\\laurea_magistrale_informatica\\ScalableCloud\\progetto\\FakeNewsClassificationWithDecisionTreeMR\\data\\dataset\\dataset.csv")
 
     // Step 2: CountVectorizer to build a vocabulary
     val cvModel = new CountVectorizer()
