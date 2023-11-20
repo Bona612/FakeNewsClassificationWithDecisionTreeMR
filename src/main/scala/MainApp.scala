@@ -1,6 +1,6 @@
 import java.io.File
 import org.apache.hadoop.conf.Configuration
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import dataacquisition.DataAcquisition
 import decisiontreealg.MapReduceAlgorithm
 
@@ -9,6 +9,12 @@ import scala.language.postfixOps
 import scala.sys.process._
 import decisiontree.DecisionTree
 import decisiontree.Node
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.types.IntegerType
+//import org.apache.spark.sql.functions.{col, lit, rand, row_number}
+import org.apache.spark.sql.functions._
+
+import scala.math.Fractional.Implicits.infixFractionalOps
 
 object MainApp {
 
@@ -123,7 +129,6 @@ object MainApp {
       dataset = dataAcquisition.loadDataset()
       println("Dataset loaded succesfully!")
     }
-
     print(dataset)
 
 
@@ -142,16 +147,58 @@ object MainApp {
 
     // MOMENTANEAMENTE COMMENTO TUTTO SOTTO PER FARE UNA PROVA DI CREAZIONE DEL DATASET
 
-    /*
-    val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm(dataset)
+
+    println("DATASET COUNT", dataset.count())
+
+    // Conta il numero di righe per ciascuna classe
+    val classCounts = dataset.groupBy("label").count()
+    println("ClassCounts" , classCounts)
+/*
+
+     */
+     // Calcola il numero massimo di righe da prendere per ciascuna label nel set di addestramento
+    val maxRowsPerLabel = dataset.groupBy("label").agg(count("label").alias("count")).agg(min("count")).collect()(0).getLong(0).toInt
+
+    // Dividi il DataFrame in due parti: una con label 0 e una con label 1
+    val dfLabel0 = dataset.filter("label = 0")
+    val dfLabel1 = dataset.filter("label = 1")
+
+    println(maxRowsPerLabel)
+    println(dfLabel0.count())
+    println(dfLabel0.count()*0.8)
+    println(dfLabel1.count())
+    println(dfLabel1.count()*0.8)
+    // Prendi un campione bilanciato per ciascuna label
+    val trainLabel0 = dfLabel0.sample(false, (maxRowsPerLabel.toDouble)*0.8 / dfLabel0.count()) //SI PUÒ AGGIUNGERE IL SEED
+    val trainLabel1 = dfLabel1.sample(false, (maxRowsPerLabel.toDouble)*0.8 / dfLabel1.count()) //SI PUÒ AGGIUNGERE IL SEED
+
+
+    // Unisci i due campioni per ottenere il set di addestramento bilanciato
+    val trainSet = trainLabel0.union(trainLabel1)
+
+    // Rimuovi le righe utilizzate per l'addestramento dal DataFrame originale
+    val testSet = dataset.except(trainSet)
+
+    // Suddividi il rimanente in test e validation
+    //val Array(testSet, validationSet) = remainingData.randomSplit(Array(0.8, 0.2))
+
+
+    println("Train Set: ",trainSet.count())
+    println("Train Set Label 0: ", trainSet.filter(col("label") === 0).count())
+    println("Train Set Label 1: ", trainSet.filter(col("label") === 1).count() )
+    println("Test Set: " , testSet.count())
+    println("Test Set Label 0: ", testSet.filter(col("label") === 0).count())
+    println("Test Set Label 1: ", testSet.filter(col("label") === 1).count())
+  /*
+    val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm(trainSet)
     val decTree = dataPreparation.initAlgorithm()
     decTree.asInstanceOf[Node].writeRulesToFile("/Users/luca/Desktop/treeOutput.txt")
 
-    val predictedLabels = decTree.predict(dataset,decTree)
+    val predictedLabels = decTree.predict(testSet,decTree)
 
     println("predictedLabels")
     println(predictedLabels.mkString("Array(", ", ", ")"))
-    val tmp : Array[Any] = dataset.select("label").collect().map(row => row(0))
+    val tmp : Array[Any] = testSet.select("label").collect().map(row => row(0))
     val trueLabels : Array[Int] = tmp.collect{
       case i : Int => i
     }
@@ -207,7 +254,6 @@ object MainApp {
     (truePositives, falsePositives, falseNegatives)
   }
 
-  /*
   object MetricsCalculator {
     def main(args: Array[String]): Unit = {
       // Example: True labels and predicted labels
@@ -232,7 +278,8 @@ object MainApp {
       println(s"Recall: $recall")
       println(s"F1-Score: $f1Score")
     }
-  }*/
+
+  }
 
 
 
