@@ -21,15 +21,15 @@ object MainApp {
   final val spark: SparkSession = SparkSession.builder()
                                   .master("local[*]")
                                   .appName("Fake News Classification")
-                                  .config("spark.jars.packages", "com.johnsnowlabs.nlp:spark-nlp_2.12:5.1.0")
+                                  //.config("spark.jars.packages", "com.johnsnowlabs.nlp:spark-nlp_2.12:5.1.0")
                                   .getOrCreate()
 
 
 
   def main(args: Array[String]): Unit = {
 
-    val inputPath = args(0)
-    val outputPath = args(1)
+    val inputPath = "" //args(0)
+    val outputPath = "" //args(1)
 
     val decisionTreePath = "gs://fnc-bucket-final" // "/Users/luca/Desktop/tree.txt"
     //val tree = DecisionTree.fromFile(decisionTreePath)
@@ -141,9 +141,10 @@ object MainApp {
     // Coalesce to a single partition
     // Save as a single CSV file
     //dataset.coalesce(1).write.csv(Paths.get(datasetPath).resolve(csv).toString)
-    dataset.coalesce(1).write.csv(s"./$csv")
+    //dataset.coalesce(1).write.csv(s"./$csv")
 
-    s"gsutil cp ./$csv gs://$outputPath/$csv".!!
+    // FORSE DA PROVARE
+    //s"gsutil cp ./$csv gs://$outputPath/$csv".!!
 
     // MOMENTANEAMENTE COMMENTO TUTTO SOTTO PER FARE UNA PROVA DI CREAZIONE DEL DATASET
 

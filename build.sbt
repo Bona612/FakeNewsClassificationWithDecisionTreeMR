@@ -11,7 +11,8 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql" % "3.4.0" % "provided",
   "org.apache.spark" %% "spark-mllib" % "3.4.0",
   // https://mvnrepository.com/artifact/com.johnsnowlabs.nlp/spark-nlp
-  "com.johnsnowlabs.nlp" %% "spark-nlp" % "5.1.0"
+  "com.johnsnowlabs.nlp" %% "spark-nlp" % "5.1.0",
+  "com.google.cloud" % "google-cloud-storage" % "2.29.1"
 )
 
 

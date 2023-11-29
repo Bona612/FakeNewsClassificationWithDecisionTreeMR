@@ -1,7 +1,7 @@
 package dataacquisition
 
 import com.johnsnowlabs.nlp.DocumentAssembler
-import org.apache.spark.sql.{DataFrame, Encoders, Row, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, Encoders, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{DoubleType, FloatType, IntegerType, StringType, StructField, StructType}
@@ -11,6 +11,9 @@ import scala.collection.mutable.ListBuffer
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.feature.StopWordsRemover
 import com.johnsnowlabs.nlp.annotator.{LemmatizerModel, Stemmer, StopWordsCleaner, Tokenizer}
+import org.apache.spark.ml.linalg.{SQLDataTypes, Vectors}
+import org.apache.spark.sql.catalyst.dsl.expressions.StringToAttributeConversionHelper
+import utils.GCSUtils
 //import com.johnsnowlabs.nlp.annotators.EnglishStemmer
 import org.apache.spark.sql.catalyst.ScalaReflection.universe.typeOf
 import org.apache.spark.ml.feature.Word2Vec
@@ -32,6 +35,61 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
   }
 
   def loadDataset(): DataFrame = {
+/*
+    val data2 = Seq((1, Vectors.sparse(3, Seq((1, 0.5), (2, 0.6))), 0),
+      (2, Vectors.sparse(3, Seq((1, 0.5), (2, 0.6))), 0),
+      (3, Vectors.sparse(3, Seq((1, 0.5), (2, 0.6))), 1))
+
+    // Define the schema
+    val schema2 = StructType(Seq(StructField("id", IntegerType, true), StructField("features", SQLDataTypes.VectorType, true), StructField("label", IntegerType, true)))
+
+    // Create an RDD of Rows
+    val rdd2 = spark.sparkContext.parallelize(data2)
+    val rows = rdd2.map { case (id, features, label) => Row(id, features, label) }
+
+    val v = Array("first", "second", "third")
+
+    // Create a DataFrame
+    val df2 = spark.createDataFrame(rows, schema2)
+
+    // Define a UDF to convert Vector to Array
+    val vectorToArray2 = udf((v: Vector) => v.toArray)
+
+    // Apply the UDF to the "features" column
+    val dfWithArray2 = df2.withColumn("features_array", vectorToArray2(col("features")))
+
+    val newColumns2 = v.zipWithIndex.map {
+      case (alias, idx) => col("features_array").getItem(idx).alias(alias)
+    }
+    println("new columns created")
+    // Add the new columns to the DataFrame
+    val newDF22 = dfWithArray2.select(newColumns2 :+ col("label"): _*)
+    newDF22.show()
+*/
+/*
+    // Specify your HDFS command
+    val hdfsCommand1 = Seq("hdfs", "dfs", "-ls", "hdfs:///user/fnc_user/dataset_finaleee")
+
+    // Run the command and capture the output line by line
+    val process1 = Process(hdfsCommand1)
+    val output1 = process1.lineStream
+
+    // Use foldLeft to process lines and accumulate the last element
+    val lastElement1: String = output1
+      .filter(_.endsWith(".csv"))
+      .foldLeft("N/A") { (_, line) =>
+        // Split the line based on "/"
+        val pathElements1 = line.split("/")
+
+        // Return the last element of the array or "N/A" if empty
+        pathElements1.lastOption.getOrElse("N/A")
+      }
+
+    // Print or use the final last element
+    println(s"Final last element: $lastElement1")
+
+    GCSUtils.saveFile("/data/dataset/fake_news_log_train.csv", "hdfs:///user/fnc_user/download/fake-news-log/train.csv")
+*/
 
     var datasetPathList: ListBuffer[String] = ListBuffer()
 
@@ -83,9 +141,190 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     var finalDataset: DataFrame = null
 
+    def processDataset(spark: SparkSession, datasetName: String, columnName: String): DataFrame = {
+      // Read CSV file from HDFS
+      val datasetDF: DataFrame = spark.read
+        .option("header", "true")
+        .option("escape", "\"")
+        .option("multiLine", "true")
+        .option("sep", ",")
+        .option("charset", "UTF-8")
+        .csv(s"hdfs:///user/fnc_user/download/$datasetName/" + csvPerDataset(datasetName))
+
+      println("NUM PARTITIONS: " + datasetDF.rdd.partitions.length.toString)
+
+      // Filter rows based on certain conditions
+      val filteredDF: DataFrame = filterRows(datasetDF)
+
+      // Process the "text" column
+      val textDF: DataFrame = processTextColumn(filteredDF)
+
+      // Select only specific columns
+      val selectedColumns: Array[String] = Array(columnName)
+      val selectedDF: DataFrame = filteredDF.select(selectedColumns.map(col): _*)
+
+      // Remove rows with missing values
+      val cleanedDF: DataFrame = selectedDF.na.drop(selectedColumns)
+
+      // Drop duplicates based on selected columns
+      val deduplicatedDF: DataFrame = cleanedDF.dropDuplicates(selectedColumns)
+
+      // Rename columns
+      val renamedColumns: Map[String, String] = Map(columnName -> "text")
+      val renamedDF: DataFrame = renameColumns(deduplicatedDF, renamedColumns)
+
+      // Add label column based on datasetName
+      val labeledDF: DataFrame = addLabelColumn(renamedDF, datasetName)
+
+      // Union textDF and labeledDF
+      if (textDF != null) {
+        val uDF = textDF.union(labeledDF)
+        // Coalesce to a single partition before saving
+        val uDFsave: DataFrame = uDF.coalesce(1)
+
+        // Specify your output path and format (e.g., parquet, csv, etc.)
+        val outputPath_save = s"hdfs:///user/fnc_user/save/$datasetName"
+        // Write the DataFrame to a single CSV file
+        uDFsave.write //.format("com.databricks.spark.csv")
+          .mode("overwrite")
+          .option("header", "true") // Include header in the CSV file
+          .csv(outputPath_save)
+
+        // Read CSV file from HDFS
+        val uDFsave_read: DataFrame = spark.read
+          .option("header", "true")
+          .option("escape", "\"")
+          .option("multiLine", "true")
+          .option("sep", ",")
+          .option("charset", "UTF-8")
+          .csv(outputPath_save)
+
+        println(datasetName)
+        println("COUNT FINALE: " + uDFsave_read.count())
+        uDFsave_read
+      } else {
+        val labeledDFsave: DataFrame = labeledDF.coalesce(1)
+
+        // Specify your output path and format (e.g., parquet, csv, etc.)
+        val outputPath_save = s"hdfs:///user/fnc_user/save/$datasetName"
+        // Write the DataFrame to a single CSV file
+        labeledDFsave.write //.format("com.databricks.spark.csv")
+          .mode("overwrite")
+          .option("header", "true") // Include header in the CSV file
+          .csv(outputPath_save)
+
+        // Read CSV file from HDFS
+        val labeledDFsave_read: DataFrame = spark.read
+          .option("header", "true")
+          .option("escape", "\"")
+          .option("multiLine", "true")
+          .option("sep", ",")
+          .option("charset", "UTF-8")
+          .csv(outputPath_save)
+
+        println(datasetName)
+        println("COUNT FINALE: " + labeledDFsave_read.count())
+        labeledDFsave_read
+      }
+    }
+
+    def filterRows(datasetDF: DataFrame): DataFrame = {
+      // Filter rows based on certain conditions
+      val columnNames: Array[String] = datasetDF.columns
+      columnNames.foldLeft(datasetDF)((df, colName) => {
+        colName match {
+          case "label" | "Label" | "Ground Label" =>
+            df.filter(col(colName) === "fake" || col(colName) === "FAKE" || col(colName) === 1)
+          case "language" =>
+            df.filter(col(colName) === "english")
+          case _ => df
+        }
+      })
+    }
+
+    def processTextColumn(datasetDF: DataFrame): DataFrame = {
+      val columnNames: Array[String] = datasetDF.columns
+      columnNames.foldLeft(null.asInstanceOf[DataFrame])((textDF, colName) => {
+        if (colName == "text") {
+          // Split the column and explode to create new rows
+          val explodedDF = datasetDF.withColumn("split", split(col("text"), "\\.")).select(col("split"))
+          val resultDF = explodedDF.select(explode(col("split")).alias("text")).withColumnRenamed("text", "title")
+          // Add a new column
+          resultDF.withColumn("label", expr("1"))
+        } else {
+          textDF
+        }
+      })
+      /*
+      // Process text column
+      val textDFOption: Option[DataFrame] = columnNames.collectFirst {
+        case "text" | "text" =>
+          val explodedDF = filteredDF.withColumn("split", split(col("text"), "\\.")).select(col("split"))
+          val resultDF = explodedDF.select(explode(col("split")).alias("text")).withColumnRenamed("text", "title").withColumn("label", expr("1"))
+          resultDF
+      }
+       */
+    }
+
+    def renameColumns(datasetDF: DataFrame, renamedColumns: Map[String, String]): DataFrame = {
+      // Rename columns
+      val isColumnPresent: Boolean = renamedColumns.keySet.exists(datasetDF.columns.contains)
+      renamedColumns.foldLeft(datasetDF)((df, entry) => {
+        val (oldName, newName) = entry
+        if (!isColumnPresent) {
+          df.withColumnRenamed(oldName, newName)
+        } else {
+          df
+        }
+      })
+    }
+
+    def addLabelColumn(datasetDF: DataFrame, datasetName: String): DataFrame = {
+      // Add label column based on datasetName
+      if (datasetName == "million-headlines") {
+        datasetDF.withColumn("label", expr("0"))
+      } else {
+        datasetDF.withColumn("label", expr("1"))
+      }
+    }
+
+    val unionedDataset2: DataFrame = columnsMap.map {
+      case (datasetName, columnName) => processDataset(spark, datasetName, columnName)
+    }.reduce(_ union _)
+
+
+    val drop2 = unionedDataset2.dropDuplicates()
+    drop2.show()
+
+    // Coalesce to a single partition before saving
+    val finalDataset2: DataFrame = drop2.coalesce(1)
+
+    // Specify your output path and format (e.g., parquet, csv, etc.)
+    val outputPath2 = "hdfs:///user/fnc_user/final"
+    // Write the DataFrame to a single CSV file
+    finalDataset2.write//.format("com.databricks.spark.csv")
+      .mode("overwrite")
+      .option("header", "true") // Include header in the CSV file
+      .csv(outputPath2)
+
+    // Read CSV file from HDFS
+    val readDF: DataFrame = spark.read
+      .option("header", "true")
+      .option("escape", "\"")
+      .option("multiLine", "true")
+      .option("sep", ",")
+      .option("charset", "UTF-8")
+      .csv(outputPath2)
+
+    val count = readDF.repartition(4)
+    println("NUM PARTITIONS: " + count.rdd.partitions.length.toString)
+    println(count.count())
+    println("fatto")
+
     // VERSIONE DISTRIBUITA
+    /*
     val datasetFrames: Map[String, DataFrame] = columnsMap.map {
-      case (datasetName, columnName) =>
+      case (datasetName, columnName) =>df
         val currentDir = getCurrentDirectory()
         println(currentDir)
         var datasetDF: DataFrame = spark.read.option("header", "true").option("escape","\"").option("multiLine","true").option("sep", ",").option("charset", "UTF-8").csv(s"hdfs:///user/fnc_user/download/$datasetName/" + csvPerDataset(datasetName))
@@ -166,7 +405,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     }
     val unionedDataset: DataFrame = datasetFrames.values.reduce(_ union _)
     unionedDataset.show()
-
+    */
 
     // SOPRA STO FACENDO LA VERSIONE DISTRIBUITA
     /*
@@ -499,10 +738,14 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       StructField("label", IntegerType, true)
     ))
     finalDataset = spark.createDataFrame(spark.sparkContext.parallelize(data_2), schema_2)
-    finalDataset = unionedDataset
+    finalDataset = unionedDataset2
 
     println("Final Dataset creation finished!")
-
+    // Define a regular expression pattern to match Twitter user mentions
+    val mentionPattern = "@[a-zA-Z0-9_]+"
+    // Define a regular expression pattern to match URLs
+    val urlPattern = """\b(?:https?|ftp|com):\/\/\S+"""
+/*
     finalDataset.show()
     println(finalDataset.count())
     // Drop duplicates based on all columns
@@ -518,14 +761,12 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     // Apply lower() function to convert text to lowercase
     val dfLower = dfTrimmed.withColumn("title", lower(col("title")))
 
-    // Define a regular expression pattern to match Twitter user mentions
-    val mentionPattern = "@[a-zA-Z0-9_]+"
+
 
     // Apply regexp_replace to remove Twitter user mentions
     val dfNoMentions = dfLower.withColumn("title", regexp_replace(col("title"), mentionPattern, ""))
 
-    // Define a regular expression pattern to match URLs
-    val urlPattern = """\b(?:https?|ftp|com):\/\/\S+"""
+
 
     // Apply regexp_replace to remove URLs
     val dfNoURLs = dfNoMentions.withColumn("title", regexp_replace(col("title"), urlPattern, ""))
@@ -548,8 +789,64 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     // VEDERE SE TENERE QUI, O FARE TUTTO NEL PREPROCESSING
     val dfNotEmpty = dfNoPunctuation.filter(row => row.mkString("").nonEmpty)
     val dfOnlyWhitespace = dfNotEmpty.filter(row => !(row.mkString("").forall(_.isWhitespace)))
-
+*/
     //val dfWithTokens = dfOnlyWhitespace.withColumn("tokens", split(col("title"), "\\s+"))
+
+    // IN MODO DISTRIBUITO
+    // Define a list of transformations as functions
+    val transformations: List[Column => Column] = List(
+      trim, // Trim whitespaces
+      lower, // Convert to lowercase
+      c => regexp_replace(c, mentionPattern, ""), // Remove Twitter user mentions
+      c => regexp_replace(c, urlPattern, ""), // Remove URLs
+      c => regexp_replace(c, "\n", ""), // Remove newline characters
+      c => regexp_replace(c, "\t", ""), // Remove tab characters
+      c => regexp_replace(c, "\\d+", ""), // Remove numbers
+      c => regexp_replace(c, "\\s+", " "), // Remove consecutive whitespace characters
+      c => regexp_replace(c, "[^a-zA-Z0-9\\s]", "") // Remove punctuation
+    )
+
+    // Apply the transformations in a distributed manner
+    val dfProcessed: DataFrame = transformations.foldLeft(count)((df, transformation) => df.withColumn("title", transformation(col("title"))))
+
+    val dfWoutDup: DataFrame = dfProcessed.dropDuplicates() // Drop duplicates
+
+    // Filter out empty strings and rows with only whitespace characters
+    val dfOnlyWhitespace: DataFrame = dfWoutDup.filter(row => row.getString(0).nonEmpty && !row.getString(0).forall(_.isWhitespace))
+
+
+    if (dfWoutDup.isEmpty) {
+      println("IL PROBLEMA è QUI, è VUOTOOOOO !!!")
+    }
+    else {
+      println("IL DATAFRAME è OKAY")
+    }
+
+
+    // Coalesce to a single partition before saving
+    val cleaned = dfWoutDup.coalesce(1)
+    // Specify your output path and format (e.g., parquet, csv, etc.)
+    val outputPath3 = "hdfs:///user/fnc_user/final_clean"
+    // Write the DataFrame to a single CSV file
+    cleaned.write //.format("com.databricks.spark.csv")
+      .mode("overwrite")
+      .option("header", "true") // Include header in the CSV file
+      .csv(outputPath3)
+
+    // Read CSV file from HDFS
+    val readDF2: DataFrame = spark.read
+      .option("header", "true")
+      .option("escape", "\"")
+      .option("multiLine", "true")
+      .option("sep", ",")
+      .option("charset", "UTF-8")
+      .csv(outputPath3)
+
+    println("nuova rilettura")
+    /*val part4 = readDF2.repartition(4)
+    println("NUM PARTITIONS: " + part4.rdd.partitions.length.toString)
+    println(part4.count())
+    println("fatto")*/
 
 
     val documentAssembler = new DocumentAssembler()
@@ -595,20 +892,44 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val pipeline = new Pipeline().setStages(Array(documentAssembler, tokenizer, stemmer))
 
     // Fit the pipeline to the data
-    val model = pipeline.fit(dfOnlyWhitespace)
+    val model = pipeline.fit(readDF2)
 
     // Transform the DataFrame
-    val resultDF = model.transform(dfOnlyWhitespace)
-
-
-
-    resultDF.show()
-    resultDF.selectExpr("stemmedTokens.result").show(truncate = false)
-
-
+    val resultDF = model.transform(readDF2)
     // Selecting a single column and creating a new DataFrame
     val results = resultDF.selectExpr("*", "stemmedTokens.result as final_tokens")
-    results.show()
+    val results_tosave = results.select("final_tokens", "label").dropDuplicates()
+/*
+    val outputPath4 = "hdfs:///user/fnc_user/final_pipeline"
+    val pipel = results_tosave.coalesce(1)
+    // Write the DataFrame to a single CSV file
+    pipel.write //.format("com.databricks.spark.csv")
+      .mode("overwrite")
+      .option("header", "true") // Include header in the CSV file
+      .csv(outputPath4)
+
+    // Read CSV file from HDFS
+    val pipel_read: DataFrame = spark.read
+      .option("header", "true")
+      .option("escape", "\"")
+      .option("multiLine", "true")
+      .option("sep", ",")
+      .option("charset", "UTF-8")
+      .csv(outputPath4)
+
+    println("nuova rilettura")
+
+    println("NUM PARTITIONS: " + pipel_read.rdd.partitions.length.toString)
+    println(pipel_read.count())
+    println("fatto")
+
+    pipel_read.show()
+ */
+    /*val resultDF_rep = readDF2.repartition(2)
+    println("NUM PARTITIONS: " + resultDF_rep.rdd.partitions.length.toString)
+    resultDF_rep.selectExpr("stemmedTokens.result").show(truncate = false)*/
+
+
     //resultDF = resultDF.withColumn("result", resultDF.selectExpr("stemmedTokens.result"))
     // Getting the column names
     /*var columnNames: Array[String] = w2v_df.columns
@@ -619,23 +940,37 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     columnNames = results.columns
     // Printing the column names
     columnNames.foreach(println)*/
-    val tfidf_df = results.select("final_tokens", "label")
+
 
     //dfOnlyWhitespace.write.format("csv").save("C:\\Users\\fnc_user\\Desktop\\laurea_magistrale_informatica\\ScalableCloud\\progetto\\FakeNewsClassificationWithDecisionTreeMR\\data\\dataset\\dataset.csv")
 
+    //val tfidf_df_rep = tfidf_df.repartition(12)
+    println("NUM PARTITIONS: " + results_tosave.rdd.partitions.length.toString)
+    println("cv iniziato !!!")
+    println("FIT iniziato !!!")
+
+    val maxVocabSize = 1000
     // Step 2: CountVectorizer to build a vocabulary
     val cvModel = new CountVectorizer()
       .setInputCol("final_tokens")
       .setOutputCol("rawFeatures")
-      .fit(tfidf_df)
+      .setVocabSize(maxVocabSize)
+      .fit(results_tosave)
 
-    val featurizedData = cvModel.transform(tfidf_df)
+    println("FIT finito e TRANSFORM iniziato !!!")
 
+    val featurizedData = cvModel.transform(results_tosave)
+
+    println("TRANSFORM finito !!!")
+    println("idf iniziato !!!")
     // Step 3: IDF to transform the counts to TF-IDF
     val idf = new IDF().setInputCol("rawFeatures").setOutputCol("features")
     val idfModel = idf.fit(featurizedData)
-    var rescaledData = idfModel.transform(featurizedData)
-
+    println("FIT finito e TRANSFORM iniziato !!!")
+    val rescaledData_1 = idfModel.transform(featurizedData)
+    // Rename the 'name' column to 'full_name'
+    val rescaledData = rescaledData_1.withColumnRenamed("label", "ground_truth")
+    println("TRANSFORM finito !!!")
     rescaledData.show()
 
     /*// Get the list of words in the vocabulary
@@ -662,11 +997,36 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     }
     */
 
-    rescaledData.select("features", "label").printSchema()
+    val sc = rescaledData.select("features", "ground_truth").schema
+    println(sc)
+    println(sc.toString())
+    println(sc.length)
+/*
+    val outputPath5 = "hdfs:///user/fnc_user/final_cvidf"
+    val final_cvidf = rescaledData.coalesce(1)
+    // Write the DataFrame to a single CSV file
+    final_cvidf.write //.format("com.databricks.spark.csv")
+      .mode("overwrite")
+      .option("header", "true") // Include header in the CSV file
+      .csv(outputPath5)
 
+    // Read CSV file from HDFS
+    val final_cvidf_read: DataFrame = spark.read
+      .option("header", "true")
+      .option("escape", "\"")
+      .option("multiLine", "true")
+      .option("sep", ",")
+      .option("charset", "UTF-8")
+      .csv(outputPath5)
 
+    val finalll4 = final_cvidf_read.repartition(4)
+    println("NUM PARTITIONS: " + finalll4.rdd.partitions.length.toString)
+    println(finalll4.count())
+    println("fatto")
+*/
     // Get the list of words in the vocabulary
     val vocabulary = cvModel.vocabulary
+/*
     val headers = vocabulary :+ "label"
 
     var schema_seq: Seq[StructField] = Seq()
@@ -688,6 +1048,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     // Define the schema for the new DataFrame
     val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
+*/
 /*
     // Extract values from the "features" column and create a new DataFrame
     // .select("features").as[Vector]
@@ -701,8 +1062,9 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     }
       //.toDF(schemaFinal: _*) // Use the header names directly
 */
+    val schemaFinall = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
 
-    // Define a function to create a new dataframe for each row
+    /*// Define a function to create a new dataframe for each row
     def createNewDataFrame(features: Vector, label: Integer): DataFrame = {
       val newRow = Row(features.toArray.toSeq, label)
 
@@ -711,10 +1073,191 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
       // Create the new dataframe
       spark.createDataFrame(spark.sparkContext.parallelize(Seq(newRow)), schemaFinal)
+    }*/
+
+    try {
+      println("1 --- Iinizio della trasformazione finale del dataset !!!")
+
+      // Create a schema for the new dataframe
+      val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = true)) :+ StructField("label", IntegerType, nullable = true))
+      println("SCHEMA")
+      //println(schemaFinal.fields.mkString("Array(", ", ", ")"))
+      println(schemaFinal.length)
+
+/*
+      // Create an RDD with rows for the new DataFrame
+      val newRDD = rescaledData.rdd.map { row =>
+        Row.fromSeq(row.getAs[Seq[Double]]("features") :+ row.getAs[Int]("label"))
+      }
+
+      println("CREATION DATAFRAME AFTER map")
+      // Create a new DataFrame with the specified schema
+      val newDF = spark.createDataFrame(newRDD, schemaFinal)
+*/
+
+      // Get the schema of the DataFrame
+      val schema_print = rescaledData.schema
+
+      // Get the data type of the specified column
+      val dataType = schema_print("features").dataType
+      println("TYPE of features: " + dataType)
+      val z = 688
+      println(rescaledData.select("features").head(z).last.toString())
+      println("VOCAB TYPE: " + vocabulary.getClass)
+      /*
+      // Create new columns for each element in the dense vector
+      val numElements = rescaledData.select("features").head().getAs[Vector](0).size
+      println("SIZE: " + numElements.toString)
+
+      val newColumns = (0 until numElements).map(i => col("features").getItem(i).alias(vocabulary(i)))
+      */
+      //val vecToArray = udf((xs: Vector) => xs.toArray)
+      //val dfArr = rescaledData.withColumn("featuresArr", vecToArray(col("features")))
+
+      // Define a UDF to convert Vector to Array
+      val vectorToArray = udf((v: Vector) => v.toArray)
+      println("adding array column")
+      // Apply the UDF to the "features" column
+      val rescaledDataWArray = rescaledData.withColumn("features_array", vectorToArray(col("features")))
+      println("Starting sql definition")
+      val newColumns = vocabulary.zipWithIndex.map {
+        case (alias, idx) => col("features_array").getItem(idx).alias(alias)
+      }
+      println("new columns created")
+      // Add the new columns to the DataFrame
+      val newDF = rescaledDataWArray.select(newColumns :+ col("ground_truth"): _*)
+      /*
+      val finallll_dataset = rescaledData.rdd
+        .map {
+          case Row(features: Vector, label: Integer) =>
+            val newRow = Row(features.toArray.toSeq, label)
+
+            // Create the new dataframe
+            spark.createDataFrame(spark.sparkContext.parallelize(Seq(newRow)), schemaFinal)
+        }
+        .reduce(_ union _)
+  */
+      println("FINITOOOOOOOOOOOOOOOO")
+
+      val outputPath5 = "hdfs:///user/fnc_user/dataset_finaleee"
+      val finaleee = newDF.coalesce(1)
+      // Write the DataFrame to a single CSV file
+      finaleee.write //.format("com.databricks.spark.csv")
+        .mode("overwrite")
+        .option("header", "true") // Include header in the CSV file
+        .csv(outputPath5)
+
+      println("between")
+
+      // Specify your HDFS command
+      val hdfsCommand = Seq("hdfs", "dfs", "-ls", outputPath5)
+
+      // Run the command and capture the output line by line
+      val process = Process(hdfsCommand)
+      val output = process.lineStream
+
+      // Use foldLeft to process lines and accumulate the last element
+      val csvName: String = output
+        .filter(_.endsWith(".csv"))
+        .foldLeft("N/A") { (_, line) =>
+          // Split the line based on "/"
+          val pathElements = line.split("/")
+
+          // Return the last element of the array or "N/A" if empty
+          pathElements.lastOption.getOrElse("N/A")
+        }
+
+      // Print or use the final last element
+      println(s"CSV name: $csvName")
+
+
+      // Read CSV file from HDFS
+      val finaleee_read: DataFrame = spark.read
+        .option("header", "true")
+        .option("escape", "\"")
+        .option("multiLine", "true")
+        .option("sep", ",")
+        .option("charset", "UTF-8")
+        .csv(outputPath5)
+
+      println("NUM PARTITIONS: " + finaleee_read.rdd.partitions.length.toString)
+      println("fatto")
+
+      finaleee_read.show()
+
+      val hdfs_o = outputPath5 + "/" + csvName
+      GCSUtils.saveFile("/data/dataset/dataset.csv", hdfs_o) // gs://fnc-bucket-final
+
+      //val cgs = s"gsutil cp $hdfs_o gs://fnc-bucket-final/data/dataset/$csvName".!!
+      //val exit_cgs = cgs !
+
+      //println("gsutil exit code: " + exit_cgs)
+    } catch {
+      case e: Exception =>
+        // Log the exception details
+        println("CATCH")
+        println(s"Error occurred: ${e.getMessage}")
+        e.printStackTrace()
+        // You can also log to a file or another logging system
+        // For example, spark.log.error(s"Error occurred: ${e.getMessage}")
+        // Rethrow the exception to ensure the job fails with the error
+        //throw e
+        println("CATCH")
     }
 
-    // Apply the function to each row and union the results
-    val final_dataset = rescaledData.rdd.map{case Row(features: Vector, label: Integer) => createNewDataFrame(features, label)}.reduce(_ union _)
+
+/*
+    try {
+      println("2 --- Iinizio della trasformazione finale del dataset !!!")
+      val finall_dataset = rescaledData.rdd
+        .mapPartitions(iter => {
+          val rows = iter.map {
+            case Row(features: Vector, label: Integer) =>
+              val newRow = Row(features.toArray.toSeq, label)
+
+              // Create a schema for the new dataframe
+              val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
+
+              // Create the new dataframe
+              spark.createDataFrame(spark.sparkContext.parallelize(Seq(newRow)), schemaFinal)
+          }
+          rows
+        }).fold(spark.createDataFrame(spark.sparkContext.parallelize(Seq.empty[Row]), schemaFinall)) {
+          (df1, df2) => df1.union(df2)
+        }
+
+      finall_dataset.show()
+      println("FINITOOOOOOOOOOOOOOOO")
+    } catch {
+      case ex: Exception =>
+        // Handle the exception
+        println(s"An exception occurred: ${ex.getMessage}")
+    }
+
+
+    try {
+      println("3 --- Iinizio della trasformazione finale del dataset !!!")
+      // Apply the function to each row and union the results
+      val finalll_dataset = rescaledData.rdd.map { case Row(features: Vector, label: Integer) =>
+        val newRow = Row(features.toArray.toSeq, label)
+
+        // Create a schema for the new dataframe
+        val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
+
+        // Create the new dataframe
+        spark.createDataFrame(spark.sparkContext.parallelize(Seq(newRow)), schemaFinal)
+      }.reduce(_ union _)
+
+      finalll_dataset.show()
+      println("FINITOOOOOOOOOOOOOOOO")
+    } catch {
+      case ex: Exception =>
+        // Handle the exception
+        println(s"An exception occurred: ${ex.getMessage}")
+    }
+*/
+
+
 
 /*
     var c = 0
@@ -756,7 +1299,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val final_dataset = spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
 
  */
-    final_dataset.show()
+
 
     /*
     // Learn a mapping from words to Vectors.
@@ -858,7 +1401,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       df.show()
     }*/
 
-    final_dataset
+    null
 
   }
 
