@@ -28,8 +28,8 @@ object MainApp {
 
   def main(args: Array[String]): Unit = {
 
-    val inputPath = "" //args(0)
-    val outputPath = "" //args(1)
+    val inputPath = args(0)
+    val outputPath = args(1)
 
     val decisionTreePath = "gs://fnc-bucket-final" // "/Users/luca/Desktop/tree.txt"
     //val tree = DecisionTree.fromFile(decisionTreePath)
@@ -109,7 +109,7 @@ object MainApp {
     // Use the Files.list method to get a Stream of paths in the directory
     //directoryStream = Files.list(Paths.get(datasetPath))
 
-    var isDatasetPresent: Boolean = false
+    var isDatasetPresent: Boolean = true  // CHIARAMENTE DA SISTEMARE CON IL VERO CODICE  !!!
 /*
     // Convert the Stream to a Scala List and print the file names
     fileList = directoryStream.toArray
@@ -129,7 +129,42 @@ object MainApp {
       dataset = dataAcquisition.loadDataset()
       println("Dataset loaded succesfully!")
     }
-    print(dataset)
+    else {
+      val loadCommand = s"gsutil cp $inputPath/$datasetPath/$csv ./"
+      val exitCodeLoad = loadCommand !
+
+      if (exitCodeLoad == 0) {
+        println("Loading from GS riuscito!")
+      }
+      else {
+        println("Problema nel loading da GS...")
+      }
+
+      val fromLocal = s"hdfs dfs -copyFromLocal ./$csv hdfs:///user/fnc_user/"
+      val exitCodeFromlocal = fromLocal !
+
+      if (exitCodeFromlocal == 0) {
+        println("Loading from local riuscito!")
+      }
+      else {
+        println("Problema nel loading from local...")
+      }
+
+      dataset = spark.read
+        .option("header", "true")
+        .option("escape", "\"")
+        .option("multiLine", "true")
+        .option("sep", ",")
+        .option("charset", "UTF-8")
+        .csv(s"hdfs:///user/fnc_user/$csv")
+
+      println("NUM PARTITIONS: " + dataset.rdd.partitions.length.toString)
+      println("fatto")
+
+      dataset.show()
+
+      // DA QUI IN Avanti vai te andri o tot
+    }
 
 
     // write store datset in a directory of .csv, one csv file for each partition

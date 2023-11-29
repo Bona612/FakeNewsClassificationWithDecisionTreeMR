@@ -11,6 +11,8 @@ import java.nio.channels.Channels
 import java.io.FileInputStream
 import java.io.File
 import java.io.FileOutputStream
+import scala.language.postfixOps
+import scala.sys.process._
 
 /**
  * Utility  functions for accessing the google cloud bucket
@@ -30,7 +32,20 @@ object GCSUtils {
     val blobId = BlobId.of(bucketName, outputPathGCS)
     val blobInfo = BlobInfo.newBuilder(blobId).build()
 
+
+    println()
+    val test = s"hadoop dfs -test -d $stringFilePath" // + csvPerDataset(kaggleDatasetName)
+    val dirIsPresent = test !
+
+    println("file finale present: " + dirIsPresent.toString)
+    if (dirIsPresent == 0) {
+      println("BENEEEEEEEEEEE :)")
+    }
+    else {
+      println("no bene :(")
+    }
     val path: Path = Paths.get(stringFilePath)
+
     // Upload the file to GCS
     val blob: Blob = storage.create(blobInfo, java.nio.file.Files.readAllBytes(path))
 

@@ -824,7 +824,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
 
     // Coalesce to a single partition before saving
-    val cleaned = dfWoutDup.coalesce(1)
+    val cleaned = dfWoutDup.coalesce(1).limit(1000000)
     // Specify your output path and format (e.g., parquet, csv, etc.)
     val outputPath3 = "hdfs:///user/fnc_user/final_clean"
     // Write the DataFrame to a single CSV file
@@ -954,7 +954,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val cvModel = new CountVectorizer()
       .setInputCol("final_tokens")
       .setOutputCol("rawFeatures")
-      .setVocabSize(maxVocabSize)
+      //.setVocabSize(maxVocabSize)
       .fit(results_tosave)
 
     println("FIT finito e TRANSFORM iniziato !!!")
@@ -1186,6 +1186,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       finaleee_read.show()
 
       val hdfs_o = outputPath5 + "/" + csvName
+      println("hdfs finale: " + hdfs_o)
       GCSUtils.saveFile("/data/dataset/dataset.csv", hdfs_o) // gs://fnc-bucket-final
 
       //val cgs = s"gsutil cp $hdfs_o gs://fnc-bucket-final/data/dataset/$csvName".!!
