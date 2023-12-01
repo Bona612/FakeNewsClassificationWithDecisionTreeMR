@@ -22,6 +22,7 @@ class Downloader(val kaggleDataset: String, val csvPerDataset: Map[String, Strin
     absolutePath
   }
 
+  // NON RICORDO SE FOSSE DA LEVARE QUALCOSA O SOLO QUALCHE PRINT PER PULIRE
   def downloadDataset(): String = {
 
     var kaggleDatasetName = ""
@@ -41,7 +42,7 @@ class Downloader(val kaggleDataset: String, val csvPerDataset: Map[String, Strin
     val currentDir = getCurrentDirectory()
     // val currentDir = new File(".").getCanonicalPath
 
-    val test = s"hadoop dfs -test -d hdfs:///user/fnc_user/download/$kaggleDatasetName/" // + csvPerDataset(kaggleDatasetName)
+    val test = s"hdfs dfs -test -d hdfs:///user/fnc_user/download/$kaggleDatasetName/" // + csvPerDataset(kaggleDatasetName)
     val dirIsPresent = test !
 
     println("download già fatto: " + dirIsPresent.toString)

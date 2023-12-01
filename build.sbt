@@ -5,6 +5,7 @@ ThisBuild / scalaVersion := "2.12.15"
 
 
 libraryDependencies ++= Seq(
+  // MANCA UNA DEPENDENCY PER GOOGLE, NON RICORDO QUALE
   // https://mvnrepository.com/artifact/org.apache.spark/spark-core
   "org.apache.spark" %% "spark-core" % "3.4.0",
   // https://mvnrepository.com/artifact/org.apache.spark/spark-sql

@@ -22,6 +22,8 @@ object GCSUtils {
   val storage = StorageOptions.getDefaultInstance().getService()
 
   def saveFile(outputPathGCS: String, stringFilePath: String): BlobInfo = {
+    // ANCHE QUI NON RICORDO BENE COSA AVESSI FATTO, DARE UN OCCHIO SU CHAT-GPT
+
     // da sistemare
     val projectId = "spring-cab-402321"
     val bucketName = "fnc-bucket-final"

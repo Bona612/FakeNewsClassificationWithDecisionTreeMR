@@ -10,7 +10,7 @@ import scala.sys.process._
 import decisiontree.DecisionTree
 import decisiontree.Node
 import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 //import org.apache.spark.sql.functions.{col, lit, rand, row_number}
 import org.apache.spark.sql.functions._
 
@@ -18,18 +18,39 @@ import scala.math.Fractional.Implicits.infixFractionalOps
 
 object MainApp {
 
+  // MI PARE MANCHI UN CONFIG
   final val spark: SparkSession = SparkSession.builder()
                                   .master("local[*]")
                                   .appName("Fake News Classification")
-                                  //.config("spark.jars.packages", "com.johnsnowlabs.nlp:spark-nlp_2.12:5.1.0")
+                                  //.config()
                                   .getOrCreate()
-
 
 
   def main(args: Array[String]): Unit = {
 
+
+    val data_2 = Seq(
+      Row("This is \"the\". first document.", 1),
+      Row("This document is \"the\" second. document.", 0),
+      Row("And this is. \"the\" third one.", 1),
+      Row("Is this. \"the\" first document? ", 1)
+    )
+    // Define the schema for the DataFrame
+    val schema_2 = StructType(Seq(
+      StructField("text", StringType, true),
+      StructField("label", IntegerType, true)
+    ))
+    val finalDataset10 = spark.createDataFrame(spark.sparkContext.parallelize(data_2), schema_2)
+
+
+    // RICORDARSI DI SETTARE HADOOP CONFIURATION PER LEGGERE E SCRIVERE DIRETTAMENTE DA GCS
+
     val inputPath = args(0)
     val outputPath = args(1)
+    // MOMENTANEAMENTE UTILE SOLO PER VEDERE SE RIFARE CREAZIONE DATASET O NO
+    val what = args(2)
+    // ALLORA QUESTO SARà UN INTERO QUINDI USARE TRY E FARE IL GET DALLA STRINGA
+    val maxVocabSizeCV = args(3)
 
     val decisionTreePath = "gs://fnc-bucket-final" // "/Users/luca/Desktop/tree.txt"
     //val tree = DecisionTree.fromFile(decisionTreePath)
@@ -78,14 +99,6 @@ object MainApp {
     val datasetPath = "data/dataset"
     val csv = "dataset.csv"
 
-    /*
-    // Creating a list of strings
-    val kaggleDatasetList: List[String] = List("hassanamin/textdb3")
-    // Create a Map
-    val csvPerDataset: Map[String, String] = Map("textdb3" -> "fake_or_real_news.csv")
-    val columnsMap: Map[String, String] = Map("textdb3" -> "title")
-    */
-
 
     // Creating a list of strings
     // "jruvika/fake-news-detection",
@@ -110,6 +123,8 @@ object MainApp {
     //directoryStream = Files.list(Paths.get(datasetPath))
 
     var isDatasetPresent: Boolean = true  // CHIARAMENTE DA SISTEMARE CON IL VERO CODICE  !!!
+    // var isDatasetPresent: Boolean = isDatasetPresent()
+
 /*
     // Convert the Stream to a Scala List and print the file names
     fileList = directoryStream.toArray
@@ -125,11 +140,15 @@ object MainApp {
     var dataset: DataFrame = null
     // If the dataset isn't created, load the dataset and save it
     if (!isDatasetPresent) {
-      val dataAcquisition: DataAcquisition = new DataAcquisition(kaggleDatasetList, csvPerDataset, columnsMap, textColumn, s"$inputPath/$downloadPath", s"$inputPath/$datasetPath", csv, spark)
+      // QUI INSERIRE IL PROCESSO DI TRY DA ARGS(3), GESTIRE SIA SUCCESS CHE FAILURE
+      val dataAcquisition: DataAcquisition = new DataAcquisition(kaggleDatasetList, csvPerDataset, columnsMap, textColumn, s"$inputPath/$downloadPath", s"$inputPath/$datasetPath", csv, maxVocabSizeCV, spark)
       dataset = dataAcquisition.loadDataset()
       println("Dataset loaded succesfully!")
     }
     else {
+
+      // QUI INSERIRE IL LOADING DIRETTO DA GCS
+
       val loadCommand = s"gsutil cp $inputPath/$datasetPath/$csv ./"
       val exitCodeLoad = loadCommand !
 
