@@ -1,6 +1,6 @@
 import java.io.File
 import org.apache.hadoop.conf.Configuration
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
 import dataacquisition.DataAcquisition
 import decisiontreealg.MapReduceAlgorithm
 
@@ -11,8 +11,12 @@ import decisiontree.DecisionTree
 import decisiontree.Node
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import utils.GCSUtils
+
+import scala.util.Try
 //import org.apache.spark.sql.functions.{col, lit, rand, row_number}
 import org.apache.spark.sql.functions._
+import org.apache.hadoop.fs.{FileSystem, Path}
 
 import scala.math.Fractional.Implicits.infixFractionalOps
 
@@ -28,6 +32,14 @@ object MainApp {
 
   def main(args: Array[String]): Unit = {
 
+    val inputPath = args(0)
+    val outputPath = args(1)
+    // MOMENTANEAMENTE UTILE SOLO PER VEDERE SE RIFARE CREAZIONE DATASET O NO
+    val what = args(2)
+    // ALLORA QUESTO SARà UN INTERO QUINDI USARE TRY E FARE IL GET DALLA STRINGA
+    val defaultMaxVocabSize = 500
+    val maxVocabSizeCV = Try(args(3).toInt).getOrElse(defaultMaxVocabSize)
+
 
     val data_2 = Seq(
       Row("This is \"the\". first document.", 1),
@@ -37,20 +49,81 @@ object MainApp {
     )
     // Define the schema for the DataFrame
     val schema_2 = StructType(Seq(
-      StructField("text", StringType, true),
-      StructField("label", IntegerType, true)
+      StructField("text", StringType, false),
+      StructField("label", IntegerType, false)
     ))
     val finalDataset10 = spark.createDataFrame(spark.sparkContext.parallelize(data_2), schema_2)
+    val splittedDF = finalDataset10.withColumn("split", split(col("text"), "\\."))
+    val explodedDF = splittedDF.select(explode(col("split")).alias("exploded"))
+    val trimmedDF = explodedDF.select(trim(col("exploded")).alias("title"))
+    val noWhitespace = trimmedDF.filter("title != ''")
+
+    val resultDF = noWhitespace.withColumn("ground_truth", lit(1))
+    println(resultDF.schema)
+    println("vediamo le colonne")
+    resultDF.columns.foreach(println)
+
+    // Updated filter condition to check for numeric values
+    val dfNot01 = resultDF.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+    if (dfNot01.isEmpty) {
+      println("BENEEEEE")
+    } else {
+      println("NO BUONO")
+      dfNot01.show()
+    }
+
+    println("text function")
+    resultDF.show()
+
+    // Specify your output path and format (e.g., parquet, csv, etc.)
+    val outputPath_save = "hdfs:///user/"
+    // Write the DataFrame to a single CSV file
+    resultDF.write //.format("com.databricks.spark.csv")
+      .mode("overwrite")
+      .option("header", "true")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
+      .option("multiLine", "true")
+      .option("delimiter", ",")
+      .option("charset", "UTF-8")
+      .csv(outputPath_save)
+
+    // Read CSV file from HDFS
+    val labeledDFsave_read: DataFrame = spark.read
+      .option("header", "true")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
+      .option("multiLine", "true")
+      .option("sep", ",")
+      .option("charset", "UTF-8")
+      .csv(outputPath_save)
+    // Updated filter condition to check for numeric values
+    val dfNot012 = labeledDFsave_read.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+    if (dfNot012.isEmpty) {
+      println("BENEEEEE")
+    } else {
+      println("NO BUONO")
+      dfNot012.show()
+    }
+
 
 
     // RICORDARSI DI SETTARE HADOOP CONFIURATION PER LEGGERE E SCRIVERE DIRETTAMENTE DA GCS
+    val keyfileName = "spring-cab-402321-b19bfffc91be.json"
+    val keyfileGCSPath = s"gs://$inputPath/$keyfileName"
+    val keyfileLocalPath = "."
+    GCSUtils.getFile(keyfileGCSPath, keyfileLocalPath)
+    //s"gsutil cp gs://your-gcs-bucket/spring-cab-402321-b19bfffc91be.json ./"
+    //val copyKeyfileCommand = s"hdfs dfs -copyFromLocal ./spring-cab-402321-b19bfffc91be.json hdfs:///user/"
+    //val copyKeyfileCommandExitCode = copyKeyfileCommand !
 
-    val inputPath = args(0)
-    val outputPath = args(1)
-    // MOMENTANEAMENTE UTILE SOLO PER VEDERE SE RIFARE CREAZIONE DATASET O NO
-    val what = args(2)
-    // ALLORA QUESTO SARà UN INTERO QUINDI USARE TRY E FARE IL GET DALLA STRINGA
-    val maxVocabSizeCV = args(3)
+    // Set your Hadoop Configuration with GCS credentials
+    val hadoopConf = spark.sparkContext.hadoopConfiguration
+    hadoopConf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+    hadoopConf.set("google.cloud.auth.service.account.enable", "true")
+    hadoopConf.set("google.cloud.auth.service.account.json.keyfile", s"keyfileLocalPath/$keyfileName")
+
+
 
     val decisionTreePath = "gs://fnc-bucket-final" // "/Users/luca/Desktop/tree.txt"
     //val tree = DecisionTree.fromFile(decisionTreePath)
@@ -122,8 +195,8 @@ object MainApp {
     // Use the Files.list method to get a Stream of paths in the directory
     //directoryStream = Files.list(Paths.get(datasetPath))
 
-    var isDatasetPresent: Boolean = true  // CHIARAMENTE DA SISTEMARE CON IL VERO CODICE  !!!
-    // var isDatasetPresent: Boolean = isDatasetPresent()
+    val isDatasetPresent = false  // CHIARAMENTE DA SISTEMARE CON IL VERO CODICE  !!!
+    // isDatasetPresent = isFilePresent(s"$datasetPath/$csv", spark)
 
 /*
     // Convert the Stream to a Scala List and print the file names
@@ -140,15 +213,19 @@ object MainApp {
     var dataset: DataFrame = null
     // If the dataset isn't created, load the dataset and save it
     if (!isDatasetPresent) {
-      // QUI INSERIRE IL PROCESSO DI TRY DA ARGS(3), GESTIRE SIA SUCCESS CHE FAILURE
+      // INSERIRE IL PROCESSO DI TRY DA ARGS(3), GESTIRE SIA SUCCESS CHE FAILURE (FATTO SOPRA)
       val dataAcquisition: DataAcquisition = new DataAcquisition(kaggleDatasetList, csvPerDataset, columnsMap, textColumn, s"$inputPath/$downloadPath", s"$inputPath/$datasetPath", csv, maxVocabSizeCV, spark)
       dataset = dataAcquisition.loadDataset()
       println("Dataset loaded succesfully!")
     }
     else {
 
-      // QUI INSERIRE IL LOADING DIRETTO DA GCS
+      // QUI INSERIRE IL LOADING DIRETTO DA GCS, FORSE AGIUNGERE QUALCHE CONFIG
+      dataset = spark.read
+        .option("header", "true") // Set to true if your CSV file has a header
+        .csv(s"$inputPath/$datasetPath/$csv")
 
+      /*
       val loadCommand = s"gsutil cp $inputPath/$datasetPath/$csv ./"
       val exitCodeLoad = loadCommand !
 
@@ -176,6 +253,7 @@ object MainApp {
         .option("sep", ",")
         .option("charset", "UTF-8")
         .csv(s"hdfs:///user/fnc_user/$csv")
+       */
 
       println("NUM PARTITIONS: " + dataset.rdd.partitions.length.toString)
       println("fatto")

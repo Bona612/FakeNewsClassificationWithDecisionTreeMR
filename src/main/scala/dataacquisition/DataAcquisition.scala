@@ -161,6 +161,9 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
       // Process the "text" column
       val textDF: DataFrame = processTextColumn(filteredDF)
+      if (textDF != null) {
+        val dfNot01 = textDF.filter(col("yourColumn").notEqual(0) && col("yourColumn").notEqual(1))
+      }
 
       // Select only specific columns
       val selectedColumns: Array[String] = Array(columnName)
@@ -173,8 +176,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       val deduplicatedDF: DataFrame = cleanedDF.dropDuplicates(selectedColumns)
 
       // Rename columns
-      val renamedColumns: Map[String, String] = Map(columnName -> "text")
-      val renamedDF: DataFrame = renameColumns(deduplicatedDF, renamedColumns)
+      val renamedDF: DataFrame = renameColumns(deduplicatedDF, columnName, textColumn)
 
       // Add label column based on datasetName
       val labeledDF: DataFrame = addLabelColumn(renamedDF, datasetName)
@@ -193,13 +195,19 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
         // Write the DataFrame to a single CSV file
         uDFsave.write //.format("com.databricks.spark.csv")
           .mode("overwrite")
-          .option("header", "true") // Include header in the CSV file
+          .option("header", "true")
+          .option("quote", "\"") // Quote character
+          .option("escape", "\"") // Quote escape character (end of quote)
+          .option("multiLine", "true")
+          .option("delimiter", ",")
+          .option("charset", "UTF-8")
           .csv(outputPath_save)
 
         // Read CSV file from HDFS
         val uDFsave_read: DataFrame = spark.read
           .option("header", "true")
-          .option("escape", "\"")
+          .option("quote", "\"") // Quote character
+          .option("escape", "\"") // Quote escape character (end of quote)
           .option("multiLine", "true")
           .option("sep", ",")
           .option("charset", "UTF-8")
@@ -219,13 +227,19 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
         // Write the DataFrame to a single CSV file
         labeledDFsave.write //.format("com.databricks.spark.csv")
           .mode("overwrite")
-          .option("header", "true") // Include header in the CSV file
+          .option("header", "true")
+          .option("quote", "\"") // Quote character
+          .option("escape", "\"") // Quote escape character (end of quote)
+          .option("multiLine", "true")
+          .option("delimiter", ",")
+          .option("charset", "UTF-8")
           .csv(outputPath_save)
 
         // Read CSV file from HDFS
         val labeledDFsave_read: DataFrame = spark.read
           .option("header", "true")
-          .option("escape", "\"")
+          .option("quote", "\"") // Quote character
+          .option("escape", "\"") // Quote escape character (end of quote)
           .option("multiLine", "true")
           .option("sep", ",")
           .option("charset", "UTF-8")
@@ -243,7 +257,8 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       columnNames.foldLeft(datasetDF)((df, colName) => {
         colName match {
           case "label" | "Label" | "Ground Label" =>
-            df.filter(col(colName) === "fake" || col(colName) === "FAKE" || col(colName) === 1)
+            val filteredDF = df.filter(col(colName) === "fake" || col(colName) === "FAKE" || col(colName) === 1)
+            filteredDF.withColumnRenamed(colName, "ground_truth")
           case "language" =>
             df.filter(col(colName) === "english")
           case _ => df
@@ -253,41 +268,45 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     // CAMBIARE DEVE ESSERE FATTO UN PASSO ALLA VOLTA
     def processTextColumn(datasetDF: DataFrame): DataFrame = {
-      val columnNames: Array[String] = datasetDF.columns
-      columnNames.foldLeft(null.asInstanceOf[DataFrame])((textDF, colName) => {
-        if (colName == "text") {
-          // Split the column and explode to create new rows
-          val explodedDF = datasetDF.withColumn("split", split(col("text"), "\\.")).select(col("split"))
-          val resultDF = explodedDF.select(explode(col("split")).alias("text")).withColumnRenamed("text", "title")
-          // Add a new column
-          resultDF.withColumn("ground_truth", lit("1"))
+
+      if (datasetDF.columns.contains("text")) {
+        val splittedDF = datasetDF.withColumn("split", split(col("text"), "\\."))
+        val explodedDF = splittedDF.select(explode(col("split")).alias("exploded"))
+        val trimmedDF = explodedDF.select(trim(col("exploded")).alias("title"))
+        val noWhitespace = trimmedDF.filter("title != ''")
+
+        val resultDF = noWhitespace.withColumn("ground_truth", lit(1))
+        println(resultDF.schema)
+        println("vediamo le colonne")
+        resultDF.columns.foreach(println)
+
+        // Updated filter condition to check for numeric values
+        val dfNot01 = resultDF.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+        if (dfNot01.isEmpty) {
+          println("BENEEEEE")
         } else {
-          null
+          println("NO BUONO")
+          dfNot01.show()
         }
-      })
-      /*
-      // Process text column
-      val textDFOption: Option[DataFrame] = columnNames.collectFirst {
-        case "text" | "text" =>
-          val explodedDF = filteredDF.withColumn("split", split(col("text"), "\\.")).select(col("split"))
-          val resultDF = explodedDF.select(explode(col("split")).alias("text")).withColumnRenamed("text", "title").withColumn("label", expr("1"))
-          resultDF
+
+        println("text function")
+        resultDF.show()
+
+        resultDF
+      } else {
+        // If "text" column is not present, return the original DataFrame
+        null
       }
-       */
     }
 
     // MOLTO PIù SEMPLICE DI COSì, SEMPLIFICARE
-    def renameColumns(datasetDF: DataFrame, renamedColumns: Map[String, String]): DataFrame = {
-      // Rename columns
-      val isColumnPresent: Boolean = renamedColumns.keySet.exists(datasetDF.columns.contains)
-      renamedColumns.foldLeft(datasetDF)((df, entry) => {
-        val (oldName, newName) = entry
-        if (!isColumnPresent) {
-          df.withColumnRenamed(oldName, newName)
-        } else {
-          df
-        }
-      })
+    def renameColumns(datasetDF: DataFrame, oldName: String, newName: String): DataFrame = {
+      if (oldName != null && newName != null && !oldName.equals(newName) && datasetDF.columns.contains(oldName)) {
+        datasetDF.withColumnRenamed(oldName, newName)
+      }
+      else {
+        datasetDF
+      }
     }
 
     // MI PARE SIANO FINITE LE MODIFICHE QUI
@@ -319,13 +338,19 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     // Write the DataFrame to a single CSV file
     finalDataset2.write//.format("com.databricks.spark.csv")
       .mode("overwrite")
-      .option("header", "true") // Include header in the CSV file
+      .option("header", "true")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
+      .option("multiLine", "true")
+      .option("delimiter", ",")
+      .option("charset", "UTF-8")
       .csv(outputPath2)
 
     // Read CSV file from HDFS
     val readDF: DataFrame = spark.read
       .option("header", "true")
-      .option("escape", "\"")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
       .option("multiLine", "true")
       .option("sep", ",")
       .option("charset", "UTF-8")
@@ -498,7 +523,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val resultDF = model.transform(readDF2)
     // Selecting a single column and creating a new DataFrame
     val results = resultDF.selectExpr("*", "stemmedTokens.result as final_tokens")
-    val results_tosave = results.select("final_tokens", "label").dropDuplicates()
+    val results_tosave = results.select("final_tokens", "ground_truth").dropDuplicates()
 /*
     val outputPath4 = "hdfs:///user/fnc_user/final_pipeline"
     val pipel = results_tosave.coalesce(1)
@@ -567,11 +592,11 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val idf = new IDF().setInputCol("rawFeatures").setOutputCol("features")
     val idfModel = idf.fit(featurizedData)
     println("FIT finito e TRANSFORM iniziato !!!")
-    val rescaledData_1 = idfModel.transform(featurizedData)
+    val rescaledData = idfModel.transform(featurizedData)
     // Rename the 'name' column to 'full_name'
 
     // FORSE QUANDO ARRIVA QUA è GIà CAMBIATA LA LABEL
-    val rescaledData = rescaledData_1.withColumnRenamed("label", "ground_truth")
+    //val rescaledData = rescaledData_1.withColumnRenamed("label", "ground_truth")
     println("TRANSFORM finito !!!")
     rescaledData.show()
 
@@ -639,14 +664,14 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
 */
 
-    val schemaFinall = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
+    val schemaFinall = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("ground_truth", IntegerType, nullable = false))
 
 
     try {
       println("1 --- Iinizio della trasformazione finale del dataset !!!")
 
       // Create a schema for the new dataframe
-      val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = true)) :+ StructField("label", IntegerType, nullable = true))
+      val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = true)) :+ StructField("ground_truth", IntegerType, nullable = true))
       println("SCHEMA")
       //println(schemaFinal.fields.mkString("Array(", ", ", ")"))
       println(schemaFinal.length)
