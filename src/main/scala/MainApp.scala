@@ -96,6 +96,10 @@ object MainApp {
       .option("sep", ",")
       .option("charset", "UTF-8")
       .csv(outputPath_save)
+
+    println(labeledDFsave_read.schema)
+    labeledDFsave_read.show()
+
     // Updated filter condition to check for numeric values
     val dfNot012 = labeledDFsave_read.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
     if (dfNot012.isEmpty) {
@@ -111,7 +115,7 @@ object MainApp {
     val keyfileName = "spring-cab-402321-b19bfffc91be.json"
     val keyfileGCSPath = keyfileName //s"gs://$inputPath/$keyfileName"
     val keyfileLocalPath = "."
-    GCSUtils.getFile(keyfileGCSPath, keyfileLocalPath)
+    GCSUtils.getFile(keyfileGCSPath, s"$keyfileLocalPath/$keyfileName")
     //s"gsutil cp gs://your-gcs-bucket/spring-cab-402321-b19bfffc91be.json ./"
     //val copyKeyfileCommand = s"hdfs dfs -copyFromLocal ./spring-cab-402321-b19bfffc91be.json hdfs:///user/"
     //val copyKeyfileCommandExitCode = copyKeyfileCommand !
@@ -120,7 +124,7 @@ object MainApp {
     val hadoopConf = spark.sparkContext.hadoopConfiguration
     hadoopConf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
     hadoopConf.set("google.cloud.auth.service.account.enable", "true")
-    hadoopConf.set("google.cloud.auth.service.account.json.keyfile", s"keyfileLocalPath/$keyfileName")
+    hadoopConf.set("google.cloud.auth.service.account.json.keyfile", s"$keyfileLocalPath/$keyfileName")
 
 
 

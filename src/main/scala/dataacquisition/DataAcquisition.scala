@@ -162,7 +162,14 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       // Process the "text" column
       val textDF: DataFrame = processTextColumn(filteredDF)
       if (textDF != null) {
-        val dfNot01 = textDF.filter(col("yourColumn").notEqual(0) && col("yourColumn").notEqual(1))
+        val dfNot01 = textDF.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+        if (dfNot01.isEmpty) {
+          println("BENEEEE")
+        }
+        else {
+          println("NO BUONO")
+          dfNot01.show()
+        }
       }
 
       // Select only specific columns
@@ -213,6 +220,15 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
           .option("charset", "UTF-8")
           .csv(outputPath_save)
 
+        val dfNot10 = uDFsave_read.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+        if (dfNot10.isEmpty) {
+          println("BENEEEE")
+        }
+        else {
+          println("NO BUONO")
+          dfNot10.show()
+        }
+
         println(datasetName)
         println("COUNT FINALE: " + uDFsave_read.count())
         uDFsave_read
@@ -244,6 +260,15 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
           .option("sep", ",")
           .option("charset", "UTF-8")
           .csv(outputPath_save)
+
+        val dfNot102 = labeledDFsave_read.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+        if (dfNot102.isEmpty) {
+          println("BENEEEE")
+        }
+        else {
+          println("NO BUONO")
+          dfNot102.show()
+        }
 
         println(datasetName)
         println("COUNT FINALE: " + labeledDFsave_read.count())
@@ -356,6 +381,15 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       .option("charset", "UTF-8")
       .csv(outputPath2)
 
+    val dfNot0123 = readDF.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+    if (dfNot0123.isEmpty) {
+      println("BENEEEE")
+    }
+    else {
+      println("NO BUONO")
+      dfNot0123.show()
+    }
+
     val count = readDF.repartition(4)
     println("NUM PARTITIONS: " + count.rdd.partitions.length.toString)
     println(count.count())
@@ -446,14 +480,16 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     // Apply the transformations in a distributed manner
     val dfProcessed: DataFrame = transformations.foldLeft(count)((df, transformation) => df.withColumn("title", transformation(col("title"))))
 
-    val dfWoutDup: DataFrame = dfProcessed.dropDuplicates() // Drop duplicates
-
     // DA CAMBIARE QUESTO, è LEGGERMENTE DIVERSO DA COSì
     // Filter out empty strings and rows with only whitespace characters
-    val dfOnlyWhitespace: DataFrame = dfWoutDup.filter(expr("trim(col(\"title\")) != ''"))
+    val dfWoutWhitespace: DataFrame = dfProcessed.filter(trim(col("title")) =!= "")
+
+    val dfWoutDup: DataFrame = dfWoutWhitespace.dropDuplicates() // Drop duplicates
 
 
-    if (dfOnlyWhitespace.isEmpty) {
+
+
+    if (dfWoutDup.isEmpty) {
       println("IL PROBLEMA è QUI, è VUOTOOOOO !!!")
     }
     else {
@@ -462,25 +498,39 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
 
     // Coalesce to a single partition before saving
-    val cleaned = dfOnlyWhitespace.coalesce(1).limit(1000000)
+    val cleaned = dfWoutDup.coalesce(1).limit(1000000)
     // Specify your output path and format (e.g., parquet, csv, etc.)
     val outputPath3 = "hdfs:///user/fnc_user/final_clean"
     // Write the DataFrame to a single CSV file
     cleaned.write //.format("com.databricks.spark.csv")
       .mode("overwrite")
-      .option("header", "true") // Include header in the CSV file
+      .option("header", "true")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
+      .option("multiLine", "true")
+      .option("delimiter", ",")
+      .option("charset", "UTF-8")
       .csv(outputPath3)
 
     // Read CSV file from HDFS
     val readDF2: DataFrame = spark.read
       .option("header", "true")
-      .option("escape", "\"")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
       .option("multiLine", "true")
       .option("sep", ",")
       .option("charset", "UTF-8")
       .csv(outputPath3)
 
     println("nuova rilettura")
+    val dfNot1023 = readDF2.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+    if (dfNot1023.isEmpty) {
+      println("BENEEEE")
+    }
+    else {
+      println("NO BUONO")
+      dfNot1023.show()
+    }
     /*val part4 = readDF2.repartition(4)
     println("NUM PARTITIONS: " + part4.rdd.partitions.length.toString)
     println(part4.count())
@@ -715,10 +765,16 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
       val outputPath5 = "hdfs:///user/fnc_user/dataset_finaleee"
       val finaleee = newDF.coalesce(1)
+
       // Write the DataFrame to a single CSV file
       finaleee.write //.format("com.databricks.spark.csv")
         .mode("overwrite")
-        .option("header", "true") // Include header in the CSV file
+        .option("header", "true")
+        .option("quote", "\"") // Quote character
+        .option("escape", "\"") // Quote escape character (end of quote)
+        .option("multiLine", "true")
+        .option("delimiter", ",")
+        .option("charset", "UTF-8")
         .csv(outputPath5)
 
       println("between")
@@ -748,11 +804,21 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       // Read CSV file from HDFS
       val finaleee_read: DataFrame = spark.read
         .option("header", "true")
-        .option("escape", "\"")
+        .option("quote", "\"") // Quote character
+        .option("escape", "\"") // Quote escape character (end of quote)
         .option("multiLine", "true")
         .option("sep", ",")
         .option("charset", "UTF-8")
         .csv(outputPath5)
+
+      val dfNot10234 = finaleee_read.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+      if (dfNot10234.isEmpty) {
+        println("BENEEEE")
+      }
+      else {
+        println("NO BUONO")
+        dfNot10234.show()
+      }
 
       println("NUM PARTITIONS: " + finaleee_read.rdd.partitions.length.toString)
       println("fatto")

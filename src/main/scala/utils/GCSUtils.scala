@@ -31,10 +31,13 @@ object GCSUtils {
     println("STORAGE: " + storage.toString)
 
     val blob = storage.get(bucketNameGCS, keyfileGCSPath)
+    // Download the blob to a local file
+    blob.downloadTo(Paths.get(keyfileLocalPath))
+    /*
     val keyfileContent = new String(blob.getContent())
-
     // Write the key file content to the local file system
     Files.write(Paths.get(keyfileLocalPath), keyfileContent.getBytes)
+    */
   }
 
   def isFilePresent(fileGCSPath: String, spark: SparkSession): Boolean = {
@@ -74,7 +77,7 @@ object GCSUtils {
 
 
     println()
-    val test = s"hadoop dfs -test -d $stringFilePath" // + csvPerDataset(kaggleDatasetName)
+    val test = s"hdfs dfs -test -d $stringFilePath" // + csvPerDataset(kaggleDatasetName)
     val dirIsPresent = test !
 
     println("file finale present: " + dirIsPresent.toString)
