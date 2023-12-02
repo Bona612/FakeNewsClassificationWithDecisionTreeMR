@@ -26,7 +26,6 @@ object MainApp {
   final val spark: SparkSession = SparkSession.builder()
                                   .master("local[*]")
                                   .appName("Fake News Classification")
-                                  //.config()
                                   .getOrCreate()
 
 
@@ -42,10 +41,10 @@ object MainApp {
 
 
     val data_2 = Seq(
-      Row("This is \"the\". first document.", 1),
-      Row("This document is \"the\" second. document.", 0),
-      Row("And this is. \"the\" third one.", 1),
-      Row("Is this. \"the\" first document? ", 1)
+      Row("  This is \"the\"  . first document.", 1),
+      Row(" This document is \"the\" second . document.", 0),
+      Row("And this is . \"the\" third one .  ", 1),
+      Row(" Is this. \"the\" first document? ", 1)
     )
     // Define the schema for the DataFrame
     val schema_2 = StructType(Seq(
@@ -110,7 +109,7 @@ object MainApp {
 
     // RICORDARSI DI SETTARE HADOOP CONFIURATION PER LEGGERE E SCRIVERE DIRETTAMENTE DA GCS
     val keyfileName = "spring-cab-402321-b19bfffc91be.json"
-    val keyfileGCSPath = s"gs://$inputPath/$keyfileName"
+    val keyfileGCSPath = keyfileName //s"gs://$inputPath/$keyfileName"
     val keyfileLocalPath = "."
     GCSUtils.getFile(keyfileGCSPath, keyfileLocalPath)
     //s"gsutil cp gs://your-gcs-bucket/spring-cab-402321-b19bfffc91be.json ./"

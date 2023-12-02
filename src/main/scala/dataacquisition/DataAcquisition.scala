@@ -450,10 +450,10 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     // DA CAMBIARE QUESTO, è LEGGERMENTE DIVERSO DA COSì
     // Filter out empty strings and rows with only whitespace characters
-    val dfOnlyWhitespace: DataFrame = dfWoutDup.filter(row => row.getString(0).nonEmpty && !row.getString(0).forall(_.isWhitespace))
+    val dfOnlyWhitespace: DataFrame = dfWoutDup.filter(expr("trim(col(\"title\")) != ''"))
 
 
-    if (dfWoutDup.isEmpty) {
+    if (dfOnlyWhitespace.isEmpty) {
       println("IL PROBLEMA è QUI, è VUOTOOOOO !!!")
     }
     else {
@@ -462,7 +462,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
 
     // Coalesce to a single partition before saving
-    val cleaned = dfWoutDup.coalesce(1).limit(1000000)
+    val cleaned = dfOnlyWhitespace.coalesce(1).limit(1000000)
     // Specify your output path and format (e.g., parquet, csv, etc.)
     val outputPath3 = "hdfs:///user/fnc_user/final_clean"
     // Write the DataFrame to a single CSV file
