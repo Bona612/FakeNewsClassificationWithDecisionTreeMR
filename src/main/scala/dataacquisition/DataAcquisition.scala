@@ -14,6 +14,7 @@ import com.johnsnowlabs.nlp.annotator.{LemmatizerModel, Stemmer, StopWordsCleane
 import org.apache.spark.ml.linalg.{SQLDataTypes, Vectors}
 import org.apache.spark.sql.catalyst.dsl.expressions.StringToAttributeConversionHelper
 import utils.GCSUtils
+import utils.GCSUtils.isFilePresent
 //import com.johnsnowlabs.nlp.annotators.EnglishStemmer
 import org.apache.spark.sql.catalyst.ScalaReflection.universe.typeOf
 import org.apache.spark.ml.feature.Word2Vec
@@ -381,7 +382,9 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       .option("charset", "UTF-8")
       .csv(outputPath2)
 
+
     val dfNot0123 = readDF.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+    println(dfNot0123.schema)
     if (dfNot0123.isEmpty) {
       println("BENEEEE")
     }
@@ -488,7 +491,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
 
 
-
+    println(dfWoutDup.schema)
     if (dfWoutDup.isEmpty) {
       println("IL PROBLEMA è QUI, è VUOTOOOOO !!!")
     }
@@ -524,6 +527,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     println("nuova rilettura")
     val dfNot1023 = readDF2.filter(col("ground_truth").notEqual(0) && col("ground_truth").notEqual(1))
+    println(dfNot1023.schema)
     if (dfNot1023.isEmpty) {
       println("BENEEEE")
     }
@@ -547,13 +551,17 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       .setOutputCol("tokens")
 
     val remover = StopWordsCleaner.pretrained()
-      .setInputCols("tokens")
+      .setInputCols(Array("tokens"))
       .setOutputCol("cleanTokens")
       .setCaseSensitive(false)
 
+    val stopWords = remover.getStopWords
+    // Print or display the stop words
+    stopWords.foreach(println)
+
     // Define the Stemmer annotator
     val stemmer = new Stemmer()
-      .setInputCols("tokens")
+      .setInputCols(Array("cleanTokens"))
       .setOutputCol("stemmedTokens")
       .setLanguage("English")
 
@@ -574,6 +582,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     // Selecting a single column and creating a new DataFrame
     val results = resultDF.selectExpr("*", "stemmedTokens.result as final_tokens")
     val results_tosave = results.select("final_tokens", "ground_truth").dropDuplicates()
+    results_tosave.show()
 /*
     val outputPath4 = "hdfs:///user/fnc_user/final_pipeline"
     val pipel = results_tosave.coalesce(1)
@@ -649,6 +658,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     //val rescaledData = rescaledData_1.withColumnRenamed("label", "ground_truth")
     println("TRANSFORM finito !!!")
     rescaledData.show()
+    println(rescaledData.schema)
 
     /*// Get the list of words in the vocabulary
     val vocabulary = cvModel.vocabulary
@@ -764,7 +774,22 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       // NON RICORDO SE TUTTI QUESTI PASSAGGI SIANO NECESSARI, FORSE AVEVO TROVATO UN MODO PIù VELOCE
 
       val outputPath5 = "hdfs:///user/fnc_user/dataset_finaleee"
+      val outputGCSPath = "gs://fnc-bucket-final/data/dataset/dataset.csv"
       val finaleee = newDF.coalesce(1)
+      println(finaleee.schema)
+      if (finaleee.isEmpty) {
+        println("NO BUONO")
+      }
+      else {
+        println("BENEEEE")
+        finaleee.show()
+      }
+
+      finaleee.columns.foreach(column => {
+        if (column.equals("")) {
+          println("Abbiamo una colonna ancora vuota")
+        }
+      })
 
       // Write the DataFrame to a single CSV file
       finaleee.write //.format("com.databricks.spark.csv")
@@ -777,6 +802,22 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
         .option("charset", "UTF-8")
         .csv(outputPath5)
 
+      // Write the DataFrame to a single CSV file
+      finaleee.write //.format("com.databricks.spark.csv")
+        .mode("overwrite")
+        .option("header", "true")
+        .option("quote", "\"") // Quote character
+        .option("escape", "\"") // Quote escape character (end of quote)
+        .option("multiLine", "true")
+        .option("delimiter", ",")
+        .option("charset", "UTF-8")
+        .csv(outputGCSPath)
+
+      val isDatasetPresent = isFilePresent("data/dataset/dataset.csv", spark)
+      println("the dataset is present? " + isDatasetPresent.toString)
+
+
+/*
       println("between")
 
       // Specify your HDFS command
@@ -828,7 +869,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       val hdfs_o = outputPath5 + "/" + csvName
       println("hdfs finale: " + hdfs_o)
       GCSUtils.saveFile("/data/dataset/dataset.csv", hdfs_o) // gs://fnc-bucket-final
-
+*/
       //val cgs = s"gsutil cp $hdfs_o gs://fnc-bucket-final/data/dataset/$csvName".!!
       //val exit_cgs = cgs !
 

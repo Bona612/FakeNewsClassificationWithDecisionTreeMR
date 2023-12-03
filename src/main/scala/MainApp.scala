@@ -1,3 +1,6 @@
+import com.johnsnowlabs.nlp.DocumentAssembler
+import com.johnsnowlabs.nlp.annotator.{Stemmer, StopWordsCleaner, Tokenizer}
+
 import java.io.File
 import org.apache.hadoop.conf.Configuration
 import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
@@ -9,6 +12,7 @@ import scala.language.postfixOps
 import scala.sys.process._
 import decisiontree.DecisionTree
 import decisiontree.Node
+import org.apache.spark.ml.Pipeline
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import utils.GCSUtils
@@ -31,6 +35,62 @@ object MainApp {
 
   def main(args: Array[String]): Unit = {
 
+    val data_2 = Seq(
+      Row("  This is \"the\"  . first document.", 1),
+      Row(" This document is \"the\" second . document.", 0),
+      Row("And this is . \"the\" third one .  ", 1),
+      Row(" Is this. \"the\" first document? ", 1)
+    )
+    // Define the schema for the DataFrame
+    val schema_2 = StructType(Seq(
+      StructField("text", StringType, false),
+      StructField("ground_truth", IntegerType, false)
+    ))
+    val finalDataset10 = spark.createDataFrame(spark.sparkContext.parallelize(data_2), schema_2)
+
+    val documentAssembler = new DocumentAssembler()
+      .setInputCol("text")
+      .setOutputCol("document")
+
+    // Tokenize the text into words
+    val tokenizer = new Tokenizer()
+      .setInputCols("document")
+      .setOutputCol("tokens")
+
+    val remover = StopWordsCleaner.pretrained()
+      .setInputCols(Array("tokens"))
+      .setOutputCol("cleanTokens")
+      .setCaseSensitive(false)
+
+    val stopWords = remover.getStopWords
+    // Print or display the stop words
+    stopWords.foreach(println)
+
+    // Define the Stemmer annotator
+    val stemmer = new Stemmer()
+      .setInputCols(Array("cleanTokens"))
+      .setOutputCol("stemmedTokens")
+      .setLanguage("English")
+
+    /*
+    val lemmatizer = LemmatizerModel.pretrained("lemma_lines", "en")
+      .setInputCols("tokens")
+      .setOutputCol("lemmaTokens")
+     */
+
+    // Create a pipeline with the tokenizer and stemmer
+    val pipeline = new Pipeline().setStages(Array(documentAssembler, tokenizer, remover, stemmer))
+
+    // Fit the pipeline to the data
+    val model = pipeline.fit(finalDataset10)
+
+    // Transform the DataFrame
+    val resultDF = model.transform(finalDataset10)
+    // Selecting a single column and creating a new DataFrame
+    val results = resultDF.selectExpr("*", "stemmedTokens.result as final_tokens")
+    val results_tosave = results.select("final_tokens", "ground_truth").dropDuplicates()
+    results_tosave.show()
+
     val inputPath = args(0)
     val outputPath = args(1)
     // MOMENTANEAMENTE UTILE SOLO PER VEDERE SE RIFARE CREAZIONE DATASET O NO
@@ -40,7 +100,7 @@ object MainApp {
     val maxVocabSizeCV = Try(args(3).toInt).getOrElse(defaultMaxVocabSize)
 
 
-    val data_2 = Seq(
+    /*val data_2 = Seq(
       Row("  This is \"the\"  . first document.", 1),
       Row(" This document is \"the\" second . document.", 0),
       Row("And this is . \"the\" third one .  ", 1),
@@ -72,9 +132,9 @@ object MainApp {
     }
 
     println("text function")
-    resultDF.show()
+    resultDF.show()*/
 
-    // Specify your output path and format (e.g., parquet, csv, etc.)
+    /*// Specify your output path and format (e.g., parquet, csv, etc.)
     val outputPath_save = "hdfs:///user/"
     // Write the DataFrame to a single CSV file
     resultDF.write //.format("com.databricks.spark.csv")
@@ -107,7 +167,7 @@ object MainApp {
     } else {
       println("NO BUONO")
       dfNot012.show()
-    }
+    }*/
 
 
 

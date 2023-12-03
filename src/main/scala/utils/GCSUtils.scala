@@ -76,7 +76,7 @@ object GCSUtils {
     val blobInfo = BlobInfo.newBuilder(blobId).build()
 
 
-    println()
+    println(stringFilePath)
     val test = s"hdfs dfs -test -d $stringFilePath" // + csvPerDataset(kaggleDatasetName)
     val dirIsPresent = test !
 
