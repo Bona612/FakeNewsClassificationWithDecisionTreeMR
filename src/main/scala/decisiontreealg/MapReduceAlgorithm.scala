@@ -9,26 +9,27 @@ import scala.collection.mutable
 import scala.math.log10
 
 
-class MapReduceAlgorithm(table : DataFrame) {
+class MapReduceAlgorithm() {
 
 
-  def initAlgorithm(): DecisionTree = {
+  def startAlgorithm(table : DataFrame): DecisionTree = {
 
     val cols: Array[String] = table.columns.dropRight(1) //discard class column
     val rddTable = table.rdd
     mainAlgorithm(rddTable, cols, None)
   }
 
-  def dataPreparation(rddTable: RDD[Row], cols: Array[String]) :RDD[((String, String),( Int, Int))] = {
+  def dataPreparation(rddTable1: RDD[Row], cols: Array[String]) :RDD[((String, String),( Int, Int))] = {
 
     /*
     * Map of splitpoints (mean of adiacent values) for attributes, if attr have only one value we discard it
     */
+    val rddTable = rddTable1.repartition(8)
 
     val attrTable = rddTable.flatMap { row =>
 
       val cols = row.schema.fieldNames.dropRight(1)
-      val pairs = cols.map(col => (col, (row.getInt(row.schema.fieldIndex("label")), row(row.schema.fieldIndex(col)).toString.toDouble)))
+      val pairs = cols.map(col => (col, (row(row.schema.fieldIndex("ground_truth")).toString.toInt, row(row.schema.fieldIndex(col)).toString.toDouble)))
 
       pairs
     }
@@ -74,15 +75,18 @@ class MapReduceAlgorithm(table : DataFrame) {
 
   private def mainAlgorithm(rddTable: RDD[Row], cols: Array[String],par: Option[Node]): DecisionTree = {
 
+    println("start data preparation...")
     val countTableSplit = dataPreparation(rddTable, cols)
 
     //entropy to understand if we arrived in the situation of only or most of instance of a class. (0 is purity)
+    println("start calc entropy...")
     val (entropy,(maxClass,maxValue), allTable) = calcEntropyTable(rddTable)
 
     if(entropy < 0.03) { //stop check
       return Leaf(label = maxClass, parent = par)
     }
 
+    println("find best split...")
     val (bestAttr, bestValue) = findBestSplit(countTableSplit, entropy, allTable)
 
     // create 2 child table filtering from parent for each split (2)
@@ -104,6 +108,7 @@ class MapReduceAlgorithm(table : DataFrame) {
 
     val currentNode = Node(bestAttr, bestValue.toDouble, null, null, par)
 
+    println("iterate right and left...")
     val right = mainAlgorithm(greaterAttrTable, cols, Option(currentNode))
     val left = mainAlgorithm(lowerAttrTable, cols, Option(currentNode))
 
@@ -113,9 +118,12 @@ class MapReduceAlgorithm(table : DataFrame) {
     currentNode
   }
 
-  private def calcEntropyTable(rddTable: RDD[Row]): (Double, (String, Int), Int) = {
+  private def calcEntropyTable(rddTable1: RDD[Row]): (Double, (String, Int), Int) = {
 
-    val allValue = rddTable.count().toInt
+
+    val allValue = rddTable1.count().toInt
+
+    val rddTable = rddTable1.repartition(8)
 
     val log2: Double => Double = (x: Double) => {
       if (x.abs == 0.0) 0.0 else log10(x) / log10(2.0)
@@ -127,14 +135,19 @@ class MapReduceAlgorithm(table : DataFrame) {
 
     val countLabelClass = rddTable.map{row =>
 
-      val index = row.schema.fieldIndex("label")
+      val index = row.schema.fieldIndex("ground_truth")
       (row(index).toString, 1)
     }.reduceByKey(_+_)
 
-    val maxKey: (String, Int) = countLabelClass.max()(new Ordering[(String, Int)]() {
+    println("max calculating...")
+    /*val maxKey: (String, Int) = countLabelClass.max()(new Ordering[(String, Int)]() {
       override def compare(x: (String, Int), y: (String, Int)): Int =
         Ordering[Int].compare(x._2, y._2)
-    })
+    })*/
+
+    val maxKey = countLabelClass.sortBy(_._2, ascending = false).first()
+
+    println("max finished...")
 
     val countLabelAll = countLabelClass.map{ case(label,count) => (label,(count,allValue))}
 
@@ -148,6 +161,7 @@ class MapReduceAlgorithm(table : DataFrame) {
     }.reduce(_+_)
 
     println("entropy: "+entropy)
+    println("maxkey: "+maxKey)
     (entropy.abs, maxKey, allValue)
   }
 
@@ -206,7 +220,7 @@ class MapReduceAlgorithm(table : DataFrame) {
 
 
     println("gainRatioTable")
-    gainRatioTable.collect().foreach(println)
+    gainRatioTable.foreach(println)
 
     val argmax = gainRatioTable.reduce{ case ((attr1,gainRatio1),(attr2, gainRatio2)) =>
 

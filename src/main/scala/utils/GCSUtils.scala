@@ -23,8 +23,8 @@ object GCSUtils {
 
   def saveFile(outputPathGCS: String, stringFilePath: String): BlobInfo = {
     // da sistemare
-    val projectId = "spring-cab-402321"
-    val bucketName = "fnc-bucket-final"
+    val projectId = "prefab-bruin-402414"
+    val bucketName = "fnc-bucket-prova2"
 
     println(storage)
     //val storage: Storage = StorageOptions.newBuilder().setProjectId(projectId).build().getService

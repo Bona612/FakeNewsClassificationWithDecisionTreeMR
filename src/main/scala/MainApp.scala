@@ -31,7 +31,7 @@ object MainApp {
     val inputPath = args(0)
     val outputPath = args(1)
 
-    val decisionTreePath = "gs://fnc-bucket-final" // "/Users/luca/Desktop/tree.txt"
+    val decisionTreePath = "gs://fnc-bucket-prova2" // "/Users/luca/Desktop/tree.txt"
     //val tree = DecisionTree.fromFile(decisionTreePath)
 
     //var directoryStream = Files.list(Paths.get(decisionTreePath))
@@ -130,7 +130,7 @@ object MainApp {
       println("Dataset loaded succesfully!")
     }
     else {
-      val loadCommand = s"gsutil cp $inputPath/$datasetPath/$csv ./"
+      val loadCommand = s"gsutil cp gs://fnc-bucket-prova2/data/dataset/dataset.csv ./"
       val exitCodeLoad = loadCommand !
 
       if (exitCodeLoad == 0) {
@@ -140,7 +140,7 @@ object MainApp {
         println("Problema nel loading da GS...")
       }
 
-      val fromLocal = s"hdfs dfs -copyFromLocal ./$csv hdfs:///user/fnc_user/"
+      val fromLocal = s"hdfs dfs -copyFromLocal ./$csv hdfs:///user/"
       val exitCodeFromlocal = fromLocal !
 
       if (exitCodeFromlocal == 0) {
@@ -156,7 +156,7 @@ object MainApp {
         .option("multiLine", "true")
         .option("sep", ",")
         .option("charset", "UTF-8")
-        .csv(s"hdfs:///user/fnc_user/$csv")
+        .csv(s"hdfs:///user/$csv")
 
       println("NUM PARTITIONS: " + dataset.rdd.partitions.length.toString)
       println("fatto")
@@ -183,56 +183,62 @@ object MainApp {
 
     // MOMENTANEAMENTE COMMENTO TUTTO SOTTO PER FARE UNA PROVA DI CREAZIONE DEL DATASET
 
+    println("DATASET COUNT "+dataset.count())
 
-    println("DATASET COUNT", dataset.count())
+    /*
 
     // Conta il numero di righe per ciascuna classe
-    val classCounts = dataset.groupBy("label").count()
+    val classCounts = dataset.groupBy("ground_truth").count()
     println("ClassCounts" , classCounts)
 
      // Calcola il numero massimo di righe da prendere per ciascuna label nel set di addestramento
-    val maxRowsPerLabel = dataset.groupBy("label").agg(count("label").alias("count")).agg(min("count")).collect()(0).getLong(0).toInt
-
+    val maxRowsPerLabel = dataset.groupBy("ground_truth").agg(count("ground_truth").alias("count")).agg(min("count")).collect()(0).getLong(0).toInt
+    */
     // Dividi il DataFrame in due parti: una con label 0 e una con label 1
-    val dfLabel0 = dataset.filter("label = 0")
-    val dfLabel1 = dataset.filter("label = 1")
+    val dfLabel0 = dataset.filter(col("ground_truth") === 0)
+    val dfLabel1 = dataset.filter(col("ground_truth") === 1)
 
-    println(maxRowsPerLabel)
-    println(dfLabel0.count())
-    println(dfLabel0.count()*0.8)
-    println(dfLabel1.count())
-    println(dfLabel1.count()*0.8)
+
+    val label0_count = dfLabel0.count().toDouble
+    val label1_count = dfLabel1.count().toDouble
+
+    val minCount = label0_count.min(label1_count)
+
+    println(minCount)
+    println(label0_count)
+    println(label0_count*0.8)
+    println(label1_count)
+    println(label1_count*0.8)
     // Prendi un campione bilanciato per ciascuna label
-    val trainLabel0 = dfLabel0.sample(false, (maxRowsPerLabel.toDouble)*0.8 / dfLabel0.count()) //SI PUÒ AGGIUNGERE IL SEED
-    val trainLabel1 = dfLabel1.sample(false, (maxRowsPerLabel.toDouble)*0.8 / dfLabel1.count()) //SI PUÒ AGGIUNGERE IL SEED
+    val trainLabel0 = dfLabel0.sample(withReplacement = false, minCount * 0.8 / label0_count) //SI PUÒ AGGIUNGERE IL SEED
+    val trainLabel1 = dfLabel1.sample(withReplacement = false, minCount * 0.8 / label1_count) //SI PUÒ AGGIUNGERE IL SEED
 
 
     // Unisci i due campioni per ottenere il set di addestramento bilanciato
     val trainSet = trainLabel0.union(trainLabel1)
 
     // Rimuovi le righe utilizzate per l'addestramento dal DataFrame originale
-    val testSet = dataset.except(trainSet)
+    val testSet = dataset.exceptAll(trainSet)
 
     // Suddividi il rimanente in test e validation
     //val Array(testSet, validationSet) = remainingData.randomSplit(Array(0.8, 0.2))
 
+    //println("Train Set: "+trainSet.cache().count())
+    //println("Train Set Label 0: "+trainSet.filter(col("ground_truth") === 0).count())
+    //println("Train Set Label 1: "+trainSet.filter(col("ground_truth") === 1).count())
+    //println("Test Set: "+testSet.cache().count())
+    //println("Test Set Label 0: "+testSet.filter(col("ground_truth") === 0).count())
+    //println("Test Set Label 1: "+testSet.filter(col("ground_truth") === 1).count())
 
-    println("Train Set: ",trainSet.count())
-    println("Train Set Label 0: ", trainSet.filter(col("label") === 0).count())
-    println("Train Set Label 1: ", trainSet.filter(col("label") === 1).count() )
-    println("Test Set: " , testSet.count())
-    println("Test Set Label 0: ", testSet.filter(col("label") === 0).count())
-    println("Test Set Label 1: ", testSet.filter(col("label") === 1).count())
-  /*
-    val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm(trainSet)
-    val decTree = dataPreparation.initAlgorithm()
-    decTree.asInstanceOf[Node].writeRulesToFile("/Users/luca/Desktop/treeOutput.txt")
+    val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm()
+    val decTree = dataPreparation.startAlgorithm(trainSet)
+    decTree.asInstanceOf[Node].writeRulesToFile("/Users/andreamancini/decisiontree/treeOutput.txt")
 
     val predictedLabels = decTree.predict(testSet,decTree)
 
     println("predictedLabels")
     println(predictedLabels.mkString("Array(", ", ", ")"))
-    val tmp : Array[Any] = testSet.select("label").collect().map(row => row(0))
+    val tmp : Array[Any] = testSet.select("ground_truth").collect().map(row => row(0))
     val trueLabels : Array[Int] = tmp.collect{
       case i : Int => i
     }
@@ -258,7 +264,7 @@ object MainApp {
     println(s"Recall: $recall")
     println(s"F1-Score: $f1Score")
 
-     */
+
 
     println("Stopping Spark")
     // Stop the Spark session
