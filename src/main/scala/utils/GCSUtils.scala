@@ -5,6 +5,8 @@ import java.io.OutputStream
 import java.nio.file.{Files, Path, Paths}
 import java.net.URI
 import com.google.cloud.storage.{Blob, BlobId, BlobInfo, Storage, StorageOptions}
+import org.apache.hadoop.fs.FileSystem
+import org.apache.spark.sql.SparkSession
 
 import java.io.ByteArrayInputStream
 import java.nio.channels.Channels
@@ -21,7 +23,48 @@ object GCSUtils {
 
   val storage = StorageOptions.getDefaultInstance().getService()
 
+  def getFile(keyfileGCSPath: String, keyfileLocalPath: String): Unit = {
+    // da sistemare
+    val projectId = "spring-cab-402321"
+    val bucketNameGCS = "fnc-bucket-final"
+
+    println("STORAGE: " + storage.toString)
+
+    val blob = storage.get(bucketNameGCS, keyfileGCSPath)
+    // Download the blob to a local file
+    blob.downloadTo(Paths.get(keyfileLocalPath))
+    /*
+    val keyfileContent = new String(blob.getContent())
+    // Write the key file content to the local file system
+    Files.write(Paths.get(keyfileLocalPath), keyfileContent.getBytes)
+    */
+  }
+
+  def isFilePresent(fileGCSPath: String, spark: SparkSession): Boolean = {
+    val bucketNameGCS = "fnc-bucket-final"
+    val GCSPath = s"gs://$bucketNameGCS/$fileGCSPath"
+
+    try {
+      // Create a Hadoop Configuration
+      val hadoopConf = spark.sparkContext.hadoopConfiguration
+
+      // Get the FileSystem for GCS
+      val fs = FileSystem.get(new java.net.URI(GCSPath), hadoopConf)
+
+      // Check if the file exists
+      fs.exists(new org.apache.hadoop.fs.Path(GCSPath))
+    }
+    catch {
+      case e: Exception =>
+        e.printStackTrace()
+        false
+    }
+  }
+
+
   def saveFile(outputPathGCS: String, stringFilePath: String): BlobInfo = {
+    // ANCHE QUI NON RICORDO BENE COSA AVESSI FATTO, DARE UN OCCHIO SU CHAT-GPT
+
     // da sistemare
     val projectId = "prefab-bruin-402414"
     val bucketName = "fnc-bucket-prova2"
@@ -33,8 +76,8 @@ object GCSUtils {
     val blobInfo = BlobInfo.newBuilder(blobId).build()
 
 
-    println()
-    val test = s"hadoop dfs -test -d $stringFilePath" // + csvPerDataset(kaggleDatasetName)
+    println(stringFilePath)
+    val test = s"hdfs dfs -test -d $stringFilePath" // + csvPerDataset(kaggleDatasetName)
     val dirIsPresent = test !
 
     println("file finale present: " + dirIsPresent.toString)
