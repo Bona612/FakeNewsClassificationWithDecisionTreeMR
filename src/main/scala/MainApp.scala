@@ -14,7 +14,7 @@ import decisiontree.DecisionTree
 import decisiontree.Node
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType, StructField, StructType}
 import utils.GCSUtils
 
 import scala.util.Try
@@ -285,8 +285,16 @@ object MainApp {
 
       // QUI INSERIRE IL LOADING DIRETTO DA GCS, FORSE AGIUNGERE QUALCHE CONFIG
       dataset = spark.read
-        .option("header", "true") // Set to true if your CSV file has a header
+        .option("header", "true")
+        .option("quote", "\"") // Quote character
+        .option("escape", "\"") // Quote escape character (end of quote)
+        .option("multiLine", "true")
+        .option("sep", ",")
+        .option("charset", "UTF-8")
         .csv(s"$inputPath/$datasetPath/$csv")
+
+      // ATTENZIONE ALLO SCHEMA. LA GROUND_TRUTH SEMBRA STRING
+      println(dataset.schema.toString())
 
       /*
       val loadCommand = s"gsutil cp $inputPath/$datasetPath/$csv ./"
