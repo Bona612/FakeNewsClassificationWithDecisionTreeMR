@@ -172,7 +172,7 @@ object MainApp {
 
 
     // RICORDARSI DI SETTARE HADOOP CONFIURATION PER LEGGERE E SCRIVERE DIRETTAMENTE DA GCS
-    val keyfileName = "spring-cab-402321-b19bfffc91be.json"
+    val keyfileName = "prefab-bruin-402414-a2db7e809915.json"
     val keyfileGCSPath = keyfileName //s"gs://$inputPath/$keyfileName"
     val keyfileLocalPath = "."
     GCSUtils.getFile(keyfileGCSPath, s"$keyfileLocalPath/$keyfileName")
@@ -278,7 +278,7 @@ object MainApp {
   */
     // Close the directory stream
     //directoryStream.close()
-    var isDatasetPresent: Boolean = true  // CHIARAMENTE DA SISTEMARE CON IL VERO CODICE  !!!
+    val isDatasetPresent: Boolean = true  // CHIARAMENTE DA SISTEMARE CON IL VERO CODICE  !!!
     var dataset: DataFrame = null
     // If the dataset isn't created, load the dataset and save it
     if (!isDatasetPresent) {
@@ -373,9 +373,8 @@ object MainApp {
     val dfLabel0 = dataset.filter(col("ground_truth") === 0)
     val dfLabel1 = dataset.filter(col("ground_truth") === 1)
 
-
-    val label0_count = dfLabel0.count().toDouble
-    val label1_count = dfLabel1.count().toDouble
+    val label0_count = dfLabel0.count().toInt
+    val label1_count = dfLabel1.count().toInt
 
     val minCount = label0_count.min(label1_count)
 
@@ -385,12 +384,24 @@ object MainApp {
     println(label1_count)
     println(label1_count*0.8)
     // Prendi un campione bilanciato per ciascuna label
-    val trainLabel0 = dfLabel0.sample(withReplacement = false, minCount * 0.8 / label0_count) //SI PUÒ AGGIUNGERE IL SEED
-    val trainLabel1 = dfLabel1.sample(withReplacement = false, minCount * 0.8 / label1_count) //SI PUÒ AGGIUNGERE IL SEED
+    /*val trainLabel0 = dfLabel0.sample(withReplacement = false, minCount * 0.8 / label0_count) //SI PUÒ AGGIUNGERE IL SEED
+    val trainLabel1 = dfLabel1.sample(withReplacement = false, minCount * 0.8 / label1_count) //SI PUÒ AGGIUNGERE IL SEED*/
 
+    val num_taken = args(4).toInt
+    val trainLabel0 = dfLabel0.limit(num_taken) //SI PUÒ AGGIUNGERE IL SEED
+    val trainLabel1 = dfLabel1.limit(num_taken)
 
     // Unisci i due campioni per ottenere il set di addestramento bilanciato
-    val trainSet = trainLabel0.union(trainLabel1)
+    val trainSet = trainLabel0.unionAll(trainLabel1)
+
+    // Select the last 5 columns
+    val lastColumns = trainSet.columns.take(args(3).toInt) ++ trainSet.columns.takeRight(1)
+
+    // Use the select operation to extract the last 5 columns
+    val finalTrainSet = trainSet.select(lastColumns.map(col): _*)
+    finalTrainSet.show()
+
+
 
     // Rimuovi le righe utilizzate per l'addestramento dal DataFrame originale
     val testSet = dataset.exceptAll(trainSet)
@@ -399,15 +410,15 @@ object MainApp {
     //val Array(testSet, validationSet) = remainingData.randomSplit(Array(0.8, 0.2))
 
     //println("Train Set: "+trainSet.cache().count())
-    //println("Train Set Label 0: "+trainSet.filter(col("ground_truth") === 0).count())
-    //println("Train Set Label 1: "+trainSet.filter(col("ground_truth") === 1).count())
+    println("Train Set Label 0: "+trainSet.filter(col("ground_truth") === "0").count())
+    println("Train Set Label 1: "+trainSet.filter(col("ground_truth") === "1").count())
     //println("Test Set: "+testSet.cache().count())
     //println("Test Set Label 0: "+testSet.filter(col("ground_truth") === 0).count())
     //println("Test Set Label 1: "+testSet.filter(col("ground_truth") === 1).count())
 
     val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm()
-    val decTree = dataPreparation.startAlgorithm(trainSet)
-    decTree.asInstanceOf[Node].writeRulesToFile("/Users/andreamancini/decisiontree/treeOutput.txt")
+    val decTree = dataPreparation.startAlgorithm(finalTrainSet)
+    decTree.asInstanceOf[Node].writeRulesToFile("./treeOutput.txt")
 
     val predictedLabels = decTree.predict(testSet,decTree)
 

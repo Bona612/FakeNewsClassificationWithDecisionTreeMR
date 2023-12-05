@@ -26,7 +26,7 @@ object GCSUtils {
   def getFile(keyfileGCSPath: String, keyfileLocalPath: String): Unit = {
     // da sistemare
     val projectId = "spring-cab-402321"
-    val bucketNameGCS = "fnc-bucket-final"
+    val bucketNameGCS = "fnc_bucket_final"
 
     println("STORAGE: " + storage.toString)
 
@@ -41,7 +41,7 @@ object GCSUtils {
   }
 
   def isFilePresent(fileGCSPath: String, spark: SparkSession): Boolean = {
-    val bucketNameGCS = "fnc-bucket-final"
+    val bucketNameGCS = "fnc_bucket_final"
     val GCSPath = s"gs://$bucketNameGCS/$fileGCSPath"
 
     try {
@@ -67,7 +67,7 @@ object GCSUtils {
 
     // da sistemare
     val projectId = "prefab-bruin-402414"
-    val bucketName = "fnc-bucket-prova2"
+    val bucketName = "fnc_bucket_prova2"
 
     println(storage)
     //val storage: Storage = StorageOptions.newBuilder().setProjectId(projectId).build().getService
