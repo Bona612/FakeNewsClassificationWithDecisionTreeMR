@@ -417,7 +417,7 @@ object MainApp {
     //println("Test Set Label 1: "+testSet.filter(col("ground_truth") === 1).count())
 
     val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm()
-    val decTree = dataPreparation.startAlgorithm(finalTrainSet)
+    val decTree = dataPreparation.startAlgorithm(trainSet)
     decTree.asInstanceOf[Node].writeRulesToFile("./treeOutput.txt")
 
     val predictedLabels = decTree.predict(testSet,decTree)
