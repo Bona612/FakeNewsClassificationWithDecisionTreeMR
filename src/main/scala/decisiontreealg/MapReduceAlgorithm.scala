@@ -78,7 +78,8 @@ class MapReduceAlgorithm() {
 
     val calcEntropy: Double => Double = (p: Double) => {
 
-      -p * log2(p)
+
+      BigDecimal(-p * log2(p)).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
     }
 
     /*
@@ -114,8 +115,8 @@ class MapReduceAlgorithm() {
     */
 
     // Calculate distinct values for each column
-    val distinctValues = cols.map(c => collect_set(col(c)).alias(s"distinct_$c"))
-    val distinctTable = rddTable.agg(distinctValues.head, distinctValues.tail: _*)
+    /*val distinctValues = cols.map(c => collect_set(col(c)).alias(s"distinct_$c"))
+    val distinctTable = rddTable.agg(distinctValues.head, distinctValues.tail: _*)*/
 
     val attrTable =  rddTable.rdd.flatMap {
 
@@ -182,7 +183,7 @@ class MapReduceAlgorithm() {
     }
 
     val calcEntropy: Double => Double = (p: Double) => {
-      -p * log2(p)
+      BigDecimal(-p * log2(p)).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
     }
 
     val allTableSplit = countTableValue.mapValues{case (_,count) => count}
@@ -194,8 +195,8 @@ class MapReduceAlgorithm() {
       .join(allTableSplit)
 
     //gainratio table
-    val gainRatioTable = infoTable
-      .map {
+    val gainRatioTable = infoTable.map {
+
         case ((attr, value), ((_, count), all)) =>
 
           val p: Double = count.toDouble / all.toDouble
@@ -225,7 +226,7 @@ class MapReduceAlgorithm() {
         //println(entropy+" "+info)
         val gain :Double = entropyAll-info
 
-        gain/split
+        BigDecimal(gain/split).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
       }
 
 

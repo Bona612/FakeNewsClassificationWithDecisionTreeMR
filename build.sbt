@@ -1,7 +1,7 @@
 
 ThisBuild / version := "0.1.0-SNAPSHOT"
 
-ThisBuild / scalaVersion := "2.12.15"
+//ThisBuild / scalaVersion := "2.12.15"
 
 
 libraryDependencies ++= Seq(
@@ -22,7 +22,7 @@ libraryDependencies ++= Seq(
 lazy val root = (project in file("."))
   .settings(
     name := "FakeNewsClassificationWithDecisionTreeMR",
-    assemblyMergeStrategy in assembly := {
+    assemblyMergeStrategy := {
       case m if m.toLowerCase.endsWith("manifest.mf") => MergeStrategy.discard
       case m if m.toLowerCase.matches("meta-inf.*\\.sf$") => MergeStrategy.discard
       case "log4j.properties" => MergeStrategy.discard
