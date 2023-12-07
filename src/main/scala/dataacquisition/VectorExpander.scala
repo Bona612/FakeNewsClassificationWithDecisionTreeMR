@@ -35,7 +35,8 @@ class VectorExpander(override val uid: String) extends Transformer {
     val expandUDF = udf { (v: Vector) => v.toArray }
 
 
-    val vectorToArray = udf((v: Vector) => v.toArray)
+
+    val vectorToArray = udf((v: Vector) => v.toArray.map(BigDecimal(_).setScale(5, BigDecimal.RoundingMode.HALF_UP).toDouble))
 
     // Apply the UDF to the "features" column
     val rescaledDataWArray = dataset.withColumn("features_array", vectorToArray(col(inputColName)))

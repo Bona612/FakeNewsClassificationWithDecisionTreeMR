@@ -72,15 +72,14 @@ class MapReduceAlgorithm() {
 
   private def calcEntropyTable(rddTable: DataFrame, idx_label: Int): (Double, (String, Double), Double) = {
 
-    val log2: Double => Double = (x: Double) => {
+    val log2: Double => Double = (x: Double) =>
       if (x.abs == 0.0) 0.0 else log10(x) / log10(2.0)
-    }
-
-    val calcEntropy: Double => Double = (p: Double) => {
 
 
-      BigDecimal(-p * log2(p)).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
-    }
+    val roundDouble : Double => Double = (value: Double) =>
+      BigDecimal(value).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
+
+    val calcEntropy: Double => Double = (p: Double) => -p * log2(p)
 
     /*
     val countLabel0 = rddTable.filter(row => row(idx_label).toString.toInt == 0).count().toDouble
@@ -100,7 +99,7 @@ class MapReduceAlgorithm() {
     var entropy = 0.0
 
     if (allValue > 0.0)
-      entropy = calcEntropy(countLabel0 / allValue) + calcEntropy(countLabel1 / allValue).abs
+      entropy = roundDouble((calcEntropy(countLabel0 / allValue) + calcEntropy(countLabel1 / allValue)).abs)
 
     println("entropy: " + entropy)
     println("0: " + countLabel0, "1: " + countLabel1)
@@ -129,8 +128,9 @@ class MapReduceAlgorithm() {
     var splitPointsTable = attrTable.combineByKey(
       createCombiner = (value: (Int, Double)) => Seq(value._2),
       mergeValue = (accumulator: Seq[Double], value: (Int, Double)) => accumulator :+ value._2,
-      mergeCombiners = (accumulator1: Seq[Double],accumulator2: Seq[Double]) => (accumulator1 ++ accumulator2).distinct.sorted
+      mergeCombiners = (accumulator1: Seq[Double],accumulator2: Seq[Double]) => accumulator1 ++ accumulator2
     )
+    .mapValues(_.distinct.sorted)
     .filter(_._2.length > 1)
 
     if (!splitPointsTable.isEmpty()) {
@@ -178,13 +178,15 @@ class MapReduceAlgorithm() {
 
   private def findBestSplit(countTableValue: RDD[((String, String), (Int, Int))], entropyAll : Double, allTable: Int): (String, String) = {
 
-    val log2: Double => Double = (x: Double) => {
+    val log2: Double => Double = (x: Double) =>
       if (x.abs == 0.0) 0.0 else log10(x) / log10(2.0)
-    }
 
-    val calcEntropy: Double => Double = (p: Double) => {
-      BigDecimal(-p * log2(p)).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
-    }
+
+    val roundDouble : Double => Double = (value: Double) =>
+      BigDecimal(value).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
+
+    val calcEntropy: Double => Double = (p: Double) => roundDouble(-p * log2(p))
+
 
     val allTableSplit = countTableValue.mapValues{case (_,count) => count}
       .reduceByKey(_+_)
@@ -226,12 +228,11 @@ class MapReduceAlgorithm() {
         //println(entropy+" "+info)
         val gain :Double = entropyAll-info
 
-        BigDecimal(gain/split).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
+        roundDouble(gain/split)
       }
 
 
     println("gainRatioTable")
-    //gainRatioTable.foreach(println)
 
     val argmax = gainRatioTable.sortBy(_._2, ascending = false).first()._1
 
