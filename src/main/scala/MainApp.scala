@@ -334,8 +334,6 @@ object MainApp {
     // Use the Files.list method to get a Stream of paths in the directory
     //directoryStream = Files.list(Paths.get(datasetPath))
 
-    val isDatasetPresent = false  // CHIARAMENTE DA SISTEMARE CON IL VERO CODICE  !!!
-    // isDatasetPresent = isFilePresent(s"$datasetPath/$csv", spark)
 
 /*
     // Convert the Stream to a Scala List and print the file names
@@ -349,7 +347,9 @@ object MainApp {
     // Close the directory stream
     //directoryStream.close()
 
-
+    val isDatasetPresent: Boolean = true  // CHIARAMENTE DA SISTEMARE CON IL VERO CODICE  !!!
+    // val isDatasetPresent = isFilePresent(s"$datasetPath/$csv", spark)
+    var dataset: DataFrame = null
     // If the dataset isn't created, load the dataset and save it
     if (!isDatasetPresent) {
       // INSERIRE IL PROCESSO DI TRY DA ARGS(3), GESTIRE SIA SUCCESS CHE FAILURE (FATTO SOPRA)
@@ -359,7 +359,7 @@ object MainApp {
     }
 
     // QUI INSERIRE IL LOADING DIRETTO DA GCS, FORSE AGIUNGERE QUALCHE CONFIG
-    val dataset: DataFrame = spark.read
+    dataset = spark.read
       .option("header", "true")
       .option("quote", "\"") // Quote character
       .option("escape", "\"") // Quote escape character (end of quote)
