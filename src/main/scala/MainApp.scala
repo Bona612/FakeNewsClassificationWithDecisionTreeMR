@@ -1,10 +1,11 @@
 import com.johnsnowlabs.nlp.DocumentAssembler
 import com.johnsnowlabs.nlp.annotator.{Stemmer, StopWordsCleaner, Tokenizer}
+import com.johnsnowlabs.nlp.Finisher
 
 import java.io.File
 import org.apache.hadoop.conf.Configuration
 import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
-import dataacquisition.DataAcquisition
+import dataacquisition.{DataAcquisition, TextCleaner, VectorExpander}
 import decisiontreealg.MapReduceAlgorithm
 
 import java.nio.file.{Files, Path, Paths}
@@ -12,7 +13,8 @@ import scala.language.postfixOps
 import scala.sys.process._
 import decisiontree.DecisionTree
 import decisiontree.Node
-import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel, IDF, VectorSlicer}
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType, StructField, StructType}
 import utils.GCSUtils
@@ -48,27 +50,33 @@ object MainApp {
     ))
     val finalDataset10 = spark.createDataFrame(spark.sparkContext.parallelize(data_2), schema_2)
 
-    val documentAssembler = new DocumentAssembler()
+
+    val textCleaner = new TextCleaner()
       .setInputCol("text")
+      .setOutputCol("cleaned_title")
+
+
+    val documentAssembler = new DocumentAssembler()
+      .setInputCol(textCleaner.getOutputCol)
       .setOutputCol("document")
 
     // Tokenize the text into words
     val tokenizer = new Tokenizer()
-      .setInputCols("document")
+      .setInputCols(Array(documentAssembler.getOutputCol))
       .setOutputCol("tokens")
 
-    val remover = StopWordsCleaner.pretrained()
-      .setInputCols(Array("tokens"))
+    /*val remover = StopWordsCleaner.pretrained()
+      .setInputCols(tokenizer.getOutputCol)
       .setOutputCol("cleanTokens")
       .setCaseSensitive(false)
 
     val stopWords = remover.getStopWords
     // Print or display the stop words
-    stopWords.foreach(println)
+    stopWords.foreach(println)*/
 
     // Define the Stemmer annotator
     val stemmer = new Stemmer()
-      .setInputCols(Array("cleanTokens"))
+      .setInputCols(Array(tokenizer.getOutputCol))
       .setOutputCol("stemmedTokens")
       .setLanguage("English")
 
@@ -78,18 +86,74 @@ object MainApp {
       .setOutputCol("lemmaTokens")
      */
 
+    val finisher = new Finisher()
+      .setInputCols(stemmer.getOutputCol)
+      .setOutputCols(Array("tokens"))
+      .setOutputAsArray(true)
+      .setCleanAnnotations(false)
+
+    println(tokenizer.getOutputCol)
+    val maxVocabSize = 500
+    // Step 2: CountVectorizer to build a vocabulary
+    val cv = new CountVectorizer()
+      .setInputCol(finisher.getOutputCols(0))
+      .setOutputCol("rawFeatures")
+      //.setVocabSize(maxVocabSize)
+
+
+    // Step 3: IDF to transform the counts to TF-IDF
+    val idf = new IDF()
+      .setInputCol(cv.getOutputCol)
+      .setOutputCol("features")
+
+    val slicer = new VectorSlicer()
+      .setInputCol("features")
+      .setOutputCol("slicedFeatures")
+      .setIndices(Array(0, 2))
+
+
+
+
+    val finisher2 = new Finisher()
+      .setInputCols(idf.getOutputCol)
+      .setOutputCols(Array("final"))
+      .setOutputAsArray(true)
+      .setCleanAnnotations(false)
+
     // Create a pipeline with the tokenizer and stemmer
-    val pipeline = new Pipeline().setStages(Array(documentAssembler, tokenizer, remover, stemmer))
+    val pipeline = new Pipeline().setStages(Array(textCleaner, documentAssembler, tokenizer, stemmer, finisher, cv, idf))
 
     // Fit the pipeline to the data
-    val model = pipeline.fit(finalDataset10)
+    val fittedPipelineModel = pipeline.fit(finalDataset10)
 
     // Transform the DataFrame
-    val resultDF = model.transform(finalDataset10)
+    val resultDF2 = fittedPipelineModel.transform(finalDataset10)
+
+    // Retrieve the CountVectorizerModel from the fitted pipeline
+    val countVectorizerModel = fittedPipelineModel.stages(5).asInstanceOf[CountVectorizerModel]
+    // Get the vocabulary from the CountVectorizerModel
+    val vocabulary = countVectorizerModel.vocabulary
+
+    val vectorExpander = new VectorExpander()
+      .setInputCol(idf.getOutputCol)
+      .setOutputCol("")
+      .setVocabulary(vocabulary) // Placeholder for vocabulary
+      .setVocabSize(countVectorizerModel.getVocabSize)
+
+    val pipeline2 = new Pipeline().setStages(Array(vectorExpander))
+
+    // Fit the pipeline to the data
+    val fittedPipelineModel2 = pipeline2.fit(resultDF2)
+
+    // Transform the DataFrame
+    val resultDF = fittedPipelineModel2.transform(resultDF2)
+
     // Selecting a single column and creating a new DataFrame
-    val results = resultDF.selectExpr("*", "stemmedTokens.result as final_tokens")
-    val results_tosave = results.select("final_tokens", "ground_truth").dropDuplicates()
-    results_tosave.show()
+    //val results = resultDF.selectExpr("*", "stemmedTokens.result as final_tokens")
+    //val results_tosave = results.select("final_tokens", "ground_truth").dropDuplicates()
+    resultDF.show()
+    println(resultDF.schema)
+
 
     val inputPath = args(0)
     val outputPath = args(1)
@@ -187,6 +251,18 @@ object MainApp {
     hadoopConf.set("google.cloud.auth.service.account.json.keyfile", s"$keyfileLocalPath/$keyfileName")
 
 
+    val executorMemory = spark.sparkContext.getConf.get("spark.executor.memory")
+    println(s"Executor Memory: $executorMemory")
+    val executorCores = spark.sparkContext.getConf.get("spark.executor.cores")
+    println(s"Executor Cores: $executorCores")
+    val executorInstances = spark.sparkContext.getConf.get("spark.executor.instances")
+    println(s"Executor Instances: $executorInstances")
+    val sparkSerializer = spark.sparkContext.getConf.get("spark.serializer")
+    println(s"Spark Serializer: $sparkSerializer")
+    val sparkExtraJavaOptions = spark.sparkContext.getConf.get("spark.executor.extraJavaOptions")
+    println(s"Spark ExtraJavaOptions: $sparkExtraJavaOptions")
+
+
 
     val decisionTreePath = "gs://fnc-bucket-final" // "/Users/luca/Desktop/tree.txt"
     //val tree = DecisionTree.fromFile(decisionTreePath)
@@ -273,66 +349,64 @@ object MainApp {
     // Close the directory stream
     //directoryStream.close()
 
-    var dataset: DataFrame = null
+
     // If the dataset isn't created, load the dataset and save it
     if (!isDatasetPresent) {
       // INSERIRE IL PROCESSO DI TRY DA ARGS(3), GESTIRE SIA SUCCESS CHE FAILURE (FATTO SOPRA)
       val dataAcquisition: DataAcquisition = new DataAcquisition(kaggleDatasetList, csvPerDataset, columnsMap, textColumn, s"$inputPath/$downloadPath", s"$inputPath/$datasetPath", csv, maxVocabSizeCV, spark)
-      dataset = dataAcquisition.loadDataset()
+      dataAcquisition.loadDataset()
       println("Dataset loaded succesfully!")
     }
-    else {
 
-      // QUI INSERIRE IL LOADING DIRETTO DA GCS, FORSE AGIUNGERE QUALCHE CONFIG
-      dataset = spark.read
-        .option("header", "true")
-        .option("quote", "\"") // Quote character
-        .option("escape", "\"") // Quote escape character (end of quote)
-        .option("multiLine", "true")
-        .option("sep", ",")
-        .option("charset", "UTF-8")
-        .csv(s"$inputPath/$datasetPath/$csv")
+    // QUI INSERIRE IL LOADING DIRETTO DA GCS, FORSE AGIUNGERE QUALCHE CONFIG
+    val dataset: DataFrame = spark.read
+      .option("header", "true")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
+      .option("multiLine", "true")
+      .option("sep", ",")
+      .option("charset", "UTF-8")
+      .csv(s"$inputPath/$datasetPath/$csv")
 
-      // ATTENZIONE ALLO SCHEMA. LA GROUND_TRUTH SEMBRA STRING
-      println(dataset.schema.toString())
+    // ATTENZIONE ALLO SCHEMA. LA GROUND_TRUTH SEMBRA STRING
+    println(dataset.schema.toString())
 
-      /*
-      val loadCommand = s"gsutil cp $inputPath/$datasetPath/$csv ./"
-      val exitCodeLoad = loadCommand !
+    /*
+    val loadCommand = s"gsutil cp $inputPath/$datasetPath/$csv ./"
+    val exitCodeLoad = loadCommand !
 
-      if (exitCodeLoad == 0) {
-        println("Loading from GS riuscito!")
-      }
-      else {
-        println("Problema nel loading da GS...")
-      }
-
-      val fromLocal = s"hdfs dfs -copyFromLocal ./$csv hdfs:///user/fnc_user/"
-      val exitCodeFromlocal = fromLocal !
-
-      if (exitCodeFromlocal == 0) {
-        println("Loading from local riuscito!")
-      }
-      else {
-        println("Problema nel loading from local...")
-      }
-
-      dataset = spark.read
-        .option("header", "true")
-        .option("escape", "\"")
-        .option("multiLine", "true")
-        .option("sep", ",")
-        .option("charset", "UTF-8")
-        .csv(s"hdfs:///user/fnc_user/$csv")
-       */
-
-      println("NUM PARTITIONS: " + dataset.rdd.partitions.length.toString)
-      println("fatto")
-
-      dataset.show()
-
-      // DA QUI IN Avanti vai te andri o tot
+    if (exitCodeLoad == 0) {
+      println("Loading from GS riuscito!")
     }
+    else {
+      println("Problema nel loading da GS...")
+    }
+
+    val fromLocal = s"hdfs dfs -copyFromLocal ./$csv hdfs:///user/fnc_user/"
+    val exitCodeFromlocal = fromLocal !
+
+    if (exitCodeFromlocal == 0) {
+      println("Loading from local riuscito!")
+    }
+    else {
+      println("Problema nel loading from local...")
+    }
+
+    dataset = spark.read
+      .option("header", "true")
+      .option("escape", "\"")
+      .option("multiLine", "true")
+      .option("sep", ",")
+      .option("charset", "UTF-8")
+      .csv(s"hdfs:///user/fnc_user/$csv")
+     */
+
+    println("NUM PARTITIONS: " + dataset.rdd.partitions.length.toString)
+    println("fatto")
+
+    dataset.show()
+
+    // DA QUI IN Avanti vai te andri o tot
 
 
     // write store datset in a directory of .csv, one csv file for each partition

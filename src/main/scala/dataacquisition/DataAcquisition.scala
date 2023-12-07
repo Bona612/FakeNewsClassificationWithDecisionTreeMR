@@ -1,6 +1,6 @@
 package dataacquisition
 
-import com.johnsnowlabs.nlp.DocumentAssembler
+import com.johnsnowlabs.nlp.{DocumentAssembler, Finisher}
 import org.apache.spark.sql.{Column, DataFrame, Encoders, Row, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.functions.{col, expr}
@@ -9,8 +9,9 @@ import org.apache.spark.sql.types.{DoubleType, FloatType, IntegerType, StringTyp
 import java.nio.file.{Files, Paths}
 import scala.collection.mutable.ListBuffer
 import org.apache.spark.ml.Pipeline
-import org.apache.spark.ml.feature.StopWordsRemover
+import org.apache.spark.ml.feature.{CountVectorizerModel, StopWordsRemover}
 import com.johnsnowlabs.nlp.annotator.{LemmatizerModel, Stemmer, StopWordsCleaner, Tokenizer}
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.ml.linalg.{SQLDataTypes, Vectors}
 import org.apache.spark.sql.catalyst.dsl.expressions.StringToAttributeConversionHelper
 import utils.GCSUtils
@@ -26,6 +27,7 @@ import java.security.CodeSource
 import scala.sys.process._
 
 
+// RIFINIRE IL CODICE, VEDERE SE UNIRE CV E IDF NELLE PIPELINE E VEDERE SE CON VECTOR SLICER SI RIESCE A FARE PIù VELOCE
 class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, String], columnsMap: Map[String, String], textColumn: String, downloadPath: String, datasetPath: String, csv: String, maxVocabSizeCV: Integer, spark: SparkSession) {
 
   def getCurrentDirectory(): String = {
@@ -33,6 +35,17 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val jarFileLocation = if (codeSource != null) codeSource.getLocation.toURI.getPath else ""
     val absolutePath = new java.io.File(jarFileLocation).getParentFile.getAbsolutePath
     absolutePath
+  }
+
+  def getFileSize(filePath: String): Long = {
+    val hadoopConf = spark.sessionState.newHadoopConf()
+    val fs = FileSystem.get(hadoopConf)
+
+    // Get file status
+    val fileStatus = fs.getFileStatus(new Path(filePath))
+
+    // Get file size
+    fileStatus.getLen
   }
 
   def loadDataset(): DataFrame = {
@@ -393,7 +406,35 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       dfNot0123.show()
     }
 
-    val count = readDF.repartition(4)
+    // Specify your HDFS command
+    val hdfsCommand = Seq("hdfs", "dfs", "-ls", outputPath2)
+
+    // Run the command and capture the output line by line
+    val process = Process(hdfsCommand)
+    val output = process.lineStream
+
+    // Use foldLeft to process lines and accumulate the last element
+    val csvName: String = output
+      .filter(_.endsWith(".csv"))
+      .foldLeft("N/A") { (_, line) =>
+        // Split the line based on "/"
+        val pathElements = line.split("/")
+
+        // Return the last element of the array or "N/A" if empty
+        pathElements.lastOption.getOrElse("N/A")
+      }
+
+    // Print or use the final last element
+    println(s"CSV name: $csvName")
+
+    println("grandezza del file creato: " + getFileSize(s"$outputPath2/$csvName").toString)
+
+    //val count = readDF.repartition(4)
+    println("NUM PARTITIONS: " + readDF.rdd.partitions.length.toString)
+    println(readDF.count())
+    println("fatto")
+
+    val count = readDF.repartition(8)
     println("NUM PARTITIONS: " + count.rdd.partitions.length.toString)
     println(count.count())
     println("fatto")
@@ -468,7 +509,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
 
     // IN MODO DISTRIBUITO
     // Define a list of transformations as functions
-    val transformations: List[Column => Column] = List(
+    /*val transformations: List[Column => Column] = List(
       trim, // Trim whitespaces
       lower, // Convert to lowercase
       c => regexp_replace(c, mentionPattern, ""), // Remove Twitter user mentions
@@ -534,34 +575,38 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     else {
       println("NO BUONO")
       dfNot1023.show()
-    }
+    }*/
     /*val part4 = readDF2.repartition(4)
     println("NUM PARTITIONS: " + part4.rdd.partitions.length.toString)
     println(part4.count())
     println("fatto")*/
 
+    val textCleaner = new TextCleaner()
+      .setInputCol(textColumn)
+      .setOutputCol(s"cleaned_$textColumn")
+
 
     val documentAssembler = new DocumentAssembler()
-      .setInputCol("title")
+      .setInputCol(textCleaner.getOutputCol)
       .setOutputCol("document")
 
     // Tokenize the text into words
     val tokenizer = new Tokenizer()
-      .setInputCols("document")
+      .setInputCols(Array(documentAssembler.getOutputCol))
       .setOutputCol("tokens")
 
     val remover = StopWordsCleaner.pretrained()
-      .setInputCols(Array("tokens"))
+      .setInputCols(tokenizer.getOutputCol)
       .setOutputCol("cleanTokens")
       .setCaseSensitive(false)
 
-    val stopWords = remover.getStopWords
+    /*val stopWords = remover.getStopWords
     // Print or display the stop words
-    stopWords.foreach(println)
+    stopWords.foreach(println)*/
 
     // Define the Stemmer annotator
     val stemmer = new Stemmer()
-      .setInputCols(Array("cleanTokens"))
+      .setInputCols(Array(remover.getOutputCol))
       .setOutputCol("stemmedTokens")
       .setLanguage("English")
 
@@ -571,9 +616,31 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       .setOutputCol("lemmaTokens")
      */
 
-    // Create a pipeline with the tokenizer and stemmer
-    val pipeline = new Pipeline().setStages(Array(documentAssembler, tokenizer, remover, stemmer))
+    val finisher = new Finisher()
+      .setInputCols(stemmer.getOutputCol)
+      .setOutputCols(Array("tokens"))
+      .setOutputAsArray(true)
+      .setCleanAnnotations(false)
 
+    val maxVocabSize = maxVocabSizeCV
+
+    val cv = new CountVectorizer()
+      .setInputCol(finisher.getOutputCols(0))
+      .setOutputCol("rawFeatures")
+      .setVocabSize(maxVocabSize)
+
+
+    // Step 3: IDF to transform the counts to TF-IDF
+    val idf = new IDF()
+      .setInputCol(cv.getOutputCol)
+      .setOutputCol("features")
+
+    val stages = Array(textCleaner, documentAssembler, tokenizer, remover, stemmer, finisher, cv)
+    // Create a pipeline with the tokenizer and stemmer
+    val pipeline = new Pipeline().setStages(stages)
+    val cvIndex = stages.indexOf(cv)
+    println(s"CV Index: $cvIndex")
+    /*
     // Fit the pipeline to the data
     val model = pipeline.fit(readDF2)
 
@@ -583,64 +650,99 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val results = resultDF.selectExpr("*", "stemmedTokens.result as final_tokens")
     val results_tosave = results.select("final_tokens", "ground_truth").dropDuplicates()
     results_tosave.show()
-/*
-    val outputPath4 = "hdfs:///user/fnc_user/final_pipeline"
-    val pipel = results_tosave.coalesce(1)
-    // Write the DataFrame to a single CSV file
-    pipel.write //.format("com.databricks.spark.csv")
+*/
+    // Fit the pipeline to the data
+    val fittedPipelineModel = pipeline.fit(count)
+
+    println("fit")
+
+    // Transform the DataFrame
+    val resultDF2 = fittedPipelineModel.transform(count)
+
+    println("NUM PARTITIONS: " + resultDF2.rdd.partitions.length.toString)
+
+    println("prima fase finita")
+
+    // Retrieve the CountVectorizerModel from the fitted pipeline
+    val countVectorizerModel = fittedPipelineModel.stages(cvIndex).asInstanceOf[CountVectorizerModel]
+    // Get the vocabulary from the CountVectorizerModel
+    val vocabulary = countVectorizerModel.vocabulary
+
+    val vectorExpander = new VectorExpander()
+      .setInputCol(idf.getOutputCol)
+      .setOutputCol("")
+      .setVocabulary(vocabulary) // Placeholder for vocabulary
+      .setVocabSize(countVectorizerModel.getVocabSize)
+
+    val pipeline2 = new Pipeline().setStages(Array(idf, vectorExpander))
+
+    // Fit the pipeline to the data
+    val fittedPipelineModel2 = pipeline2.fit(resultDF2)
+    println("fit")
+
+    // Transform the DataFrame
+    val resultDF = fittedPipelineModel2.transform(resultDF2)
+
+    println("seconda fase finita")
+
+
+    val outputPath5 = "hdfs:///user/fnc_user/dataset_finaleee"
+    val outputGCSPath = "gs://fnc-bucket-final/data/dataset/dataset.csv"
+    val finaleee = resultDF.coalesce(1)
+    println(finaleee.schema)
+    if (finaleee.isEmpty) {
+      println("NO BUONO")
+    }
+    else {
+      println("BENEEEE")
+      finaleee.show()
+    }
+
+    finaleee.columns.foreach(column => {
+      if (column.equals("")) {
+        println("Abbiamo una colonna ancora vuota")
+      }
+    })
+
+    /*// Write the DataFrame to a single CSV file
+    finaleee.write //.format("com.databricks.spark.csv")
       .mode("overwrite")
-      .option("header", "true") // Include header in the CSV file
-      .csv(outputPath4)
-
-    // Read CSV file from HDFS
-    val pipel_read: DataFrame = spark.read
       .option("header", "true")
-      .option("escape", "\"")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
       .option("multiLine", "true")
-      .option("sep", ",")
+      .option("delimiter", ",")
       .option("charset", "UTF-8")
-      .csv(outputPath4)
+      .csv(outputPath5)*/
 
-    println("nuova rilettura")
+    // Write the DataFrame to a single CSV file
+    finaleee.write //.format("com.databricks.spark.csv")
+      .mode("overwrite")
+      .option("header", "true")
+      .option("quote", "\"") // Quote character
+      .option("escape", "\"") // Quote escape character (end of quote)
+      .option("multiLine", "true")
+      .option("delimiter", ",")
+      .option("charset", "UTF-8")
+      .csv(outputGCSPath)
 
-    println("NUM PARTITIONS: " + pipel_read.rdd.partitions.length.toString)
-    println(pipel_read.count())
-    println("fatto")
+    val isDatasetPresent = isFilePresent("data/dataset/dataset.csv", spark)
+    println("the dataset is present? " + isDatasetPresent.toString)
 
-    pipel_read.show()
- */
-    /*val resultDF_rep = readDF2.repartition(2)
-    println("NUM PARTITIONS: " + resultDF_rep.rdd.partitions.length.toString)
-    resultDF_rep.selectExpr("stemmedTokens.result").show(truncate = false)*/
-
-
-    //resultDF = resultDF.withColumn("result", resultDF.selectExpr("stemmedTokens.result"))
-    // Getting the column names
-    /*var columnNames: Array[String] = w2v_df.columns
-    // Printing the column names
-    columnNames.foreach(println)
-    results.show()
-    // Getting the column names
-    columnNames = results.columns
-    // Printing the column names
-    columnNames.foreach(println)*/
-
-
-    //dfOnlyWhitespace.write.format("csv").save("C:\\Users\\fnc_user\\Desktop\\laurea_magistrale_informatica\\ScalableCloud\\progetto\\FakeNewsClassificationWithDecisionTreeMR\\data\\dataset\\dataset.csv")
-
-    //val tfidf_df_rep = tfidf_df.repartition(12)
-    println("NUM PARTITIONS: " + results_tosave.rdd.partitions.length.toString)
+/*
+    println("NUM PARTITIONS: " + resultDF.rdd.partitions.length.toString)
     println("cv iniziato !!!")
     println("FIT iniziato !!!")
 
-    val maxVocabSize = maxVocabSizeCV
+
     // Step 2: CountVectorizer to build a vocabulary
     val cvModel = new CountVectorizer()
       .setInputCol("final_tokens")
       .setOutputCol("rawFeatures")
       .setVocabSize(maxVocabSize)
       .fit(results_tosave)
-
+*/
+    /*
     println("FIT finito e TRANSFORM iniziato !!!")
 
     val featurizedData = cvModel.transform(results_tosave)
@@ -664,18 +766,15 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val vocabulary = cvModel.vocabulary
     println("Vocabulary Words:")
     vocabulary.foreach(println)*/
-
-    // Get the vocabulary size
-    val vocabSize = cvModel.vocabulary.length
-    println(s"Vocabulary Size: $vocabSize")
+*/
 
 
-
+/*
     val sc = rescaledData.select("features", "ground_truth").schema
     println(sc)
     println(sc.toString())
     println(sc.length)
-/*
+
     val outputPath5 = "hdfs:///user/fnc_user/final_cvidf"
     val final_cvidf = rescaledData.coalesce(1)
     // Write the DataFrame to a single CSV file
@@ -698,8 +797,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     println(finalll4.count())
     println("fatto")
 */
-    // Get the list of words in the vocabulary
-    val vocabulary = cvModel.vocabulary
+
 /*
     val headers = vocabulary :+ "label"
 
@@ -724,6 +822,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
     val schemaFinal = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("label", IntegerType, nullable = false))
 */
 
+    /*
     val schemaFinall = StructType(vocabulary.init.map(fieldName => StructField(fieldName, DoubleType, nullable = false)) :+ StructField("ground_truth", IntegerType, nullable = false))
 
 
@@ -817,7 +916,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       println("the dataset is present? " + isDatasetPresent.toString)
 
 
-/*
+
       println("between")
 
       // Specify your HDFS command
@@ -869,7 +968,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
       val hdfs_o = outputPath5 + "/" + csvName
       println("hdfs finale: " + hdfs_o)
       GCSUtils.saveFile("/data/dataset/dataset.csv", hdfs_o) // gs://fnc-bucket-final
-*/
+
       //val cgs = s"gsutil cp $hdfs_o gs://fnc-bucket-final/data/dataset/$csvName".!!
       //val exit_cgs = cgs !
 
@@ -885,7 +984,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
         // Rethrow the exception to ensure the job fails with the error
         //throw e
         println("CATCH")
-    }
+    }*/
 
 
     // Specify the path where you want to write the CSV file
