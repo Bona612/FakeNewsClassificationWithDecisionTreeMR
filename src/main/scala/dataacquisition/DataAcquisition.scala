@@ -49,6 +49,7 @@ class DataAcquisition(datasetList: List[String], csvPerDataset: Map[String, Stri
   }
 
   def loadDataset(): DataFrame = {
+
 /*
     val data2 = Seq((1, Vectors.sparse(3, Seq((1, 0.5), (2, 0.6))), 0),
       (2, Vectors.sparse(3, Seq((1, 0.5), (2, 0.6))), 0),
