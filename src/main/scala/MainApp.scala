@@ -38,8 +38,13 @@ object MainApp {
   def main(args: Array[String]): Unit = {
 
 
+    // set true if you want to test in local
     val testLocal = false
 
+    /*
+    * vars set in local mode
+    * in cluster mode they will be set at beginning of else
+    */
     var dataset: DataFrame = null
 
     var inputPath = ""
@@ -48,13 +53,12 @@ object MainApp {
     var defaultMaxVocabSize = 500
     var maxVocabSizeCV = 0
 
-    var num_cols = 0
+    var num_cols = 0  // 0 is default, > 0 change number of cols to take
     var num_rows = 0
 
     if (testLocal) {
 
       /* LOCAL TEST */
-
 
       val data_2 = Seq(
         Row("NASA's Juno spacecraft provides stunning images of Jupiter's polar regions", 1),
@@ -349,14 +353,13 @@ object MainApp {
     println("DATASET COUNT", dataset.count())
 
 
-
     var lastColumns: Array[String] = null
     var finalTrainSet: DataFrame = null
     var testSet: DataFrame = null
 
-    if (testLocal) {
-      // Select the last 5 columns
 
+    if (testLocal) {
+      /* TRAINSET IN TEST MODE - è uguale al dataset (nessuno split) */
       if (num_cols > 0) {
         lastColumns = dataset.columns.take(num_cols) ++ dataset.columns.takeRight(1)
 
@@ -366,6 +369,8 @@ object MainApp {
         finalTrainSet = dataset
     }
     else {
+
+      /* TRAINSET IN CLUSTER MODE */
 
       /*// Conta il numero di righe per ciascuna classe
       val classCounts = dataset.groupBy("ground_truth").count()
