@@ -5,7 +5,7 @@ import org.apache.spark.ml.Model
 import org.apache.spark.ml.param.{Param, ParamMap}
 import org.apache.spark.ml.util.{DefaultParamsWritable, Identifiable}
 import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.functions.{arrays_zip, explode, lit, row_number, udf}
+import org.apache.spark.sql.functions.{arrays_zip, explode, lit, monotonically_increasing_id, row_number, udf}
 import org.apache.spark.sql.{DataFrame, Dataset, Row}
 import org.apache.spark.sql.types.{ArrayType, IntegerType, StructField, StructType}
 
@@ -43,19 +43,16 @@ class DecisionTreeModel(override val uid: String) extends Model[DecisionTreeMode
     // Create the DataFrame using createDataFrame with the explicit schema and Seq of Rows
     val predictionsCol = dataset.sparkSession.createDataFrame(dataset.sparkSession.sparkContext.parallelize(rows), schema)
 
-    // Define a window specification partitioned by a specific column
-    val windowSpec = Window.orderBy("index")
-
     // Add a unique index over partitions
-    val resultDF = predictionsCol.withColumn("index", row_number().over(windowSpec))
+    val resultDF = predictionsCol.withColumn("Index", monotonically_increasing_id())
     // Add a unique index over partitions
-    val resultDF2 = dataframe.withColumn("index", row_number().over(windowSpec))
+    val resultDF2 = dataframe.withColumn("Index", monotonically_increasing_id())
 
     // Perform the join based on the indices
-    val joinedDF = resultDF.join(resultDF2, "index")
+    val joinedDF = resultDF.join(resultDF2, "Index")
 
     // Reorder the result based on the original order
-    val finalDF = joinedDF.sort("index").drop("index")
+    val finalDF = joinedDF.sort("Index").drop("Index")
 
     finalDF
   }

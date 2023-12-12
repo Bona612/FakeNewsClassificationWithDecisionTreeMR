@@ -6,7 +6,7 @@ import java.io.File
 import org.apache.hadoop.conf.Configuration
 import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
 import dataacquisition.{DataAcquisition, TextCleaner, VectorExpander}
-import decisiontreealg.{MapReduceAlgorithm, MapReduceAlgorithm2, MapReduceAlgorithm3}
+import decisiontreealg.{DecisionTreeClassifier, MapReduceAlgorithm}
 
 import java.nio.file.{Files, Path, Paths}
 import scala.language.postfixOps
@@ -14,6 +14,7 @@ import scala.sys.process._
 import decisiontree.DecisionTree
 import decisiontree.Node
 import org.apache.spark.SparkFiles
+import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.{Pipeline, PipelineModel}
 import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel, IDF, VectorSlicer}
 import org.apache.spark.sql.expressions.Window
@@ -189,6 +190,50 @@ object MainApp {
 
       dataset.show()
       println(dataset.schema)
+
+
+      // DA PROVARE
+      val decisionTreeMaxDepth = 10
+      val customDecisionTree = new DecisionTreeClassifier()
+        .setMaxDepth(decisionTreeMaxDepth)
+
+      // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
+      val modelDT = customDecisionTree.fit(resultDF2)
+
+      // Make predictions on a test dataset
+      val predictions = modelDT.transform(resultDF2)
+
+      // Assuming your label column is named "label" and the prediction column is named "prediction"
+      val evaluatorAccuracy = new BinaryClassificationEvaluator()
+        .setLabelCol("ground_truth")
+        .setRawPredictionCol("Prediction")
+        .setMetricName("areaUnderROC")
+
+      val evaluatorPrecisionR = new BinaryClassificationEvaluator()
+        .setLabelCol("ground_truth")
+        .setRawPredictionCol("Prediction")
+        .setMetricName("areaUnderPR")
+
+      val evaluatorPrecision = new BinaryClassificationEvaluator()
+        .setLabelCol("ground_truth")
+        .setRawPredictionCol("Prediction")
+        .setMetricName("precision")
+
+      val evaluatorRecall = new BinaryClassificationEvaluator()
+        .setLabelCol("ground_truth")
+        .setRawPredictionCol("Prediction")
+        .setMetricName("recall")
+
+
+      val pipeline3 = new Pipeline().setStages(Array(vectorExpander, customDecisionTree))
+
+      // Fit the pipeline to the data
+      val fittedPipelineModel3 = pipeline3.fit(resultDF2)
+
+      // Transform the DataFrame
+      val resultDF3 = fittedPipelineModel3.transform(resultDF2)
+      resultDF3.show()
+
 
     } else {
 
@@ -467,11 +512,11 @@ object MainApp {
     finalTrainSet = dfWithConsecutiveIndex.select(orderedColumns.map(col): _*)//.repartition(12)*/
 
     finalTrainSet.show()
-    val dataPreparation: MapReduceAlgorithm3 = new MapReduceAlgorithm3()
+    val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm()
 
     val startTimeMillis = System.currentTimeMillis()
 
-    val decTree = dataPreparation.startAlgorithm(finalTrainSet)
+    val decTree = dataPreparation.startAlgorithm(finalTrainSet, 0)
 
     // Record the end time
     val endTimeMillis = System.currentTimeMillis()
