@@ -32,7 +32,7 @@ class DecisionTreeClassifier(override val uid: String) extends Estimator[Decisio
     // Your training logic here
     // For simplicity, let's assume you have a feature column called "features" and a label column called "label"
 
-    val alg: MapReduceAlgorithm = new MapReduceAlgorithm()
+    val alg: MapReduceAlgorithm3 = new MapReduceAlgorithm3()
 
     val decTre: DecisionTree = alg.startAlgorithm(dataset.toDF, $(maxDepth))
 

@@ -10,7 +10,7 @@ import scala.math.log10
 
 class MapReduceAlgorithm3() {
 
-  def startAlgorithm(dataset: DataFrame): DecisionTree = {
+  def startAlgorithm(dataset: DataFrame, maxDepth: Int): DecisionTree = {
 
     val cols = dataset.columns.dropRight(1) //discard class column
 

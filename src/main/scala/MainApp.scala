@@ -17,6 +17,7 @@ import org.apache.spark.SparkFiles
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.{Pipeline, PipelineModel}
 import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel, IDF, VectorSlicer}
+import org.apache.spark.sql.catalyst.dsl.expressions.{DslAttr, StringToAttributeConversionHelper}
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType, StructField, StructType}
 import utils.GCSUtils
@@ -37,7 +38,7 @@ object MainApp {
   def main(args: Array[String]): Unit = {
 
     // set true if you want to test in local
-    val testLocal = false
+    val testLocal = true
 
     /*
     * vars set in local mode
@@ -108,14 +109,14 @@ object MainApp {
         .setInputCols(Array(documentAssembler.getOutputCol))
         .setOutputCol("tokens")
 
-      val remover = StopWordsCleaner.pretrained()
+      /*val remover = StopWordsCleaner.pretrained()
         .setInputCols(tokenizer.getOutputCol)
         .setOutputCol("cleanTokens")
         .setCaseSensitive(false)
 
       val stopWords = remover.getStopWords
       // Print or display the stop words
-      stopWords.foreach(println)
+      stopWords.foreach(println)*/
 
       // Define the Stemmer annotator
       val stemmer = new Stemmer()
@@ -198,23 +199,30 @@ object MainApp {
         .setMaxDepth(decisionTreeMaxDepth)
 
       // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
-      val modelDT = customDecisionTree.fit(resultDF2)
+      val modelDT = customDecisionTree.fit(dataset)
 
       // Make predictions on a test dataset
-      val predictions = modelDT.transform(resultDF2)
+      val predictions = modelDT.transform(dataset)
+      println("predictions")
+      predictions.show()
+
+      val predictionsWithDoubleLabels = predictions.withColumn("ground_truth", col("ground_truth").cast("Double")).withColumn("Prediction", col("Prediction").cast("Double"))
+
 
       // Assuming your label column is named "label" and the prediction column is named "prediction"
       val evaluatorAccuracy = new BinaryClassificationEvaluator()
         .setLabelCol("ground_truth")
         .setRawPredictionCol("Prediction")
         .setMetricName("areaUnderROC")
+      println(evaluatorAccuracy.evaluate(predictionsWithDoubleLabels).toString)
 
-      val evaluatorPrecisionR = new BinaryClassificationEvaluator()
+      val evaluatorPrecision = new BinaryClassificationEvaluator()
         .setLabelCol("ground_truth")
         .setRawPredictionCol("Prediction")
         .setMetricName("areaUnderPR")
+      println(evaluatorPrecision.evaluate(predictionsWithDoubleLabels).toString)
 
-      val evaluatorPrecision = new BinaryClassificationEvaluator()
+      /*val evaluatorPrecision = new BinaryClassificationEvaluator()
         .setLabelCol("ground_truth")
         .setRawPredictionCol("Prediction")
         .setMetricName("precision")
@@ -222,7 +230,7 @@ object MainApp {
       val evaluatorRecall = new BinaryClassificationEvaluator()
         .setLabelCol("ground_truth")
         .setRawPredictionCol("Prediction")
-        .setMetricName("recall")
+        .setMetricName("recall")*/
 
 
       val pipeline3 = new Pipeline().setStages(Array(vectorExpander, customDecisionTree))
