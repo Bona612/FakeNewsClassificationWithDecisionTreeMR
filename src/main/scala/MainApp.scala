@@ -11,8 +11,6 @@ import decisiontreealg.{DecisionTreeClassifier, MapReduceAlgorithm}
 import java.nio.file.{Files, Path, Paths}
 import scala.language.postfixOps
 import scala.sys.process._
-import decisiontree.DecisionTree
-import decisiontree.Node
 import org.apache.spark.SparkFiles
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.{Pipeline, PipelineModel}
@@ -26,7 +24,9 @@ import scala.util.Try
 //import org.apache.spark.sql.functions.{col, lit, rand, row_number}
 import org.apache.spark.sql.functions._
 import org.apache.hadoop.fs.{FileSystem, Path}
-
+import decisiontreealg.Node
+import decisiontreealg.DecisionTree
+import decisiontreealg.Leaf
 import scala.math.Fractional.Implicits.infixFractionalOps
 
 object MainApp {
@@ -200,6 +200,9 @@ object MainApp {
 
       // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
       val modelDT = customDecisionTree.fit(dataset)
+
+      modelDT.getDecisionTree.asInstanceOf[Node].writeRulesToFile("C:\\Users\\bocca\\Desktop\\perAndri\\vedem.txt")
+
 
       // Make predictions on a test dataset
       val predictions = modelDT.transform(dataset)
@@ -549,8 +552,8 @@ object MainApp {
       println("trueLabels")
       println(trueLabels.mkString("Array(", ", ", ")"))
 
-
-      val (truePositives, falsePositives, falseNegatives) = calculateMetrics(trueLabels, predictedLabels)
+      val due = predictedLabels.map(pair => pair._2)
+      val (truePositives, falsePositives, falseNegatives) = calculateMetrics(trueLabels, due)
 
       // Print the results
       println(s"True Positives: $truePositives")
