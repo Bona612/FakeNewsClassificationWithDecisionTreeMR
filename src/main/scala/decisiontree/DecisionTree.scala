@@ -82,6 +82,11 @@ case class Node(var attribute: String, value: Double, var left: DecisionTree, va
     tmp
   }
 
+  /*
+  def insertChild(node: Array[DecisionTree]): Unit = {
+    this.childs = node
+    return Unit
+  }*/
   def insertLeftChild(node: DecisionTree): Unit = {
     this.left = node
     return Unit
