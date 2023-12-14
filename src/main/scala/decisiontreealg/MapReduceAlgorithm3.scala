@@ -10,10 +10,12 @@ import scala.math.log10
 
 class MapReduceAlgorithm3() {
 
+  private var maxDepth: Int = 0
   def startAlgorithm(dataset: DataFrame, maxDepth: Int): DecisionTree = {
 
     val cols = dataset.columns.dropRight(1) //discard class column
 
+    this.maxDepth = maxDepth
     val idx_label = dataset.columns.length-1
 
     mainAlgorithm(dataset, cols, idx_label,None, 0)
@@ -26,7 +28,7 @@ class MapReduceAlgorithm3() {
     //entropy to understand if we arrived in the situation of only or most of instance of a class. (0 is purity)
     val (entropy, (maxClass, _), allTable) = calcEntropyTable(dataset)
 
-    if (entropy <= 0.3f || depthTree >= 100) { //stop check
+    if (entropy <= 0.3f || depthTree >= this.maxDepth) { //stop check
       return Leaf(label = maxClass, parent = par)
     }
 
@@ -60,7 +62,6 @@ class MapReduceAlgorithm3() {
 
         row(index).asInstanceOf[Double] < bestValue
     }
-
 
     val currentNode = Node(bestAttr, bestValue, null, null, par)
 
@@ -98,8 +99,7 @@ class MapReduceAlgorithm3() {
     val countLabel1 = dataset.filter(col("ground_truth") === "1").count().toDouble
     */
 
-    var counts = dataset.cache()
-      .groupBy("ground_truth").count().collect()
+    var counts = dataset.groupBy("ground_truth").count().collect()
 
     val countLabel0 = counts.find(row => row.getAs[Int]("ground_truth") == 0).map(_.getAs[Long]("count")).getOrElse(0L).toDouble
     val countLabel1 = counts.find(row => row.getAs[Int]("ground_truth") == 1).map(_.getAs[Long]("count")).getOrElse(0L).toDouble
@@ -144,7 +144,9 @@ class MapReduceAlgorithm3() {
             case (col, idx) =>
               (col,  (row(idx_label).asInstanceOf[Int], row(idx).asInstanceOf[Double]))
           }
-      }.partitionBy(new HashPartitioner(6)).persist()
+      }.persist()
+
+      println(s"attrtable partition: ${attrTable.partitions.length}")
 
       val splitPointsTable = attrTable.combineByKey(
         createCombiner = (value: (Int, Double)) => Seq(value._2),
@@ -175,15 +177,20 @@ class MapReduceAlgorithm3() {
 
         }
         .reduceByKey(_ + _)
+        .filter(_._2 >= 8)
         .map {
 
-           case ((attr, label, value), count) =>
-             ((attr, value), (label, count))
+          case ((attr, label, value), count) =>
+            ((attr, value), (label, count))
         }
-        .partitionBy(new HashPartitioner(6))
         .persist()
 
-      countTableSplit
+
+        if(countTableSplit.isEmpty())
+          null
+        else
+          countTableSplit
+
     }
     else
       null
@@ -204,12 +211,13 @@ class MapReduceAlgorithm3() {
 
     val allTableSplit = countTableValue
       .mapValues{case (_,count) => count}
-      .reduceByKey(_+_)
+      .reduceByKey(_+_)//.coalesce(2)
 
     //join between countTable for splitvalues and allTable for splitvalues
     val infoTable = countTableValue
       .join(allTableSplit)
 
+    println((s"infotable partitions: ${infoTable.partitions.length}"))
     //gainratio table
     val gainRatioTable = infoTable.mapValues {
         case ((_, count), all) => (all, calcEntropy(count.toDouble / all.toDouble))

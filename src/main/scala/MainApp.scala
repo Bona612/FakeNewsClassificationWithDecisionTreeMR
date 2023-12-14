@@ -13,10 +13,10 @@ import scala.language.postfixOps
 import scala.sys.process._
 import decisiontree.DecisionTree
 import decisiontree.Node
-import org.apache.spark.SparkFiles
+import org.apache.spark.{SparkFiles, ml}
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.{Pipeline, PipelineModel}
-import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel, IDF, VectorSlicer}
+import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel, IDF, VectorAssembler, VectorSlicer}
 import org.apache.spark.sql.catalyst.dsl.expressions.{DslAttr, StringToAttributeConversionHelper}
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType, StructField, StructType}
@@ -52,7 +52,7 @@ object MainApp {
     var defaultMaxVocabSize = 500
     var maxVocabSizeCV = 0
 
-    var num_cols = 5  // 0 is default, > 0 change number of cols to take
+    var num_cols = 15  // 0 is default, > 0 change number of cols to take
     var num_rows = 0
 
     if (testLocal) {
@@ -161,6 +161,7 @@ object MainApp {
         .setOutputAsArray(true)
         .setCleanAnnotations(false)
 
+
       // Create a pipeline with the tokenizer and stemmer
       val pipeline = new Pipeline().setStages(Array(textCleaner, documentAssembler, tokenizer, stemmer, finisher, cv, idf))
 
@@ -193,13 +194,14 @@ object MainApp {
       println(dataset.schema)
 
 
+      /*
       // DA PROVARE
       val decisionTreeMaxDepth = 10
       val customDecisionTree = new DecisionTreeClassifier()
         .setMaxDepth(decisionTreeMaxDepth)
 
       // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
-      val modelDT = customDecisionTree.fit(dataset)
+      val modelDT = customDecisionTree.fit(dataset.repartition(4).cache())
 
       // Make predictions on a test dataset
       val predictions = modelDT.transform(dataset)
@@ -222,7 +224,7 @@ object MainApp {
         .setMetricName("areaUnderPR")
       println(evaluatorPrecision.evaluate(predictionsWithDoubleLabels).toString)
 
-      /*val evaluatorPrecision = new BinaryClassificationEvaluator()
+      val evaluatorPrecision = new BinaryClassificationEvaluator()
         .setLabelCol("ground_truth")
         .setRawPredictionCol("Prediction")
         .setMetricName("precision")
@@ -230,7 +232,7 @@ object MainApp {
       val evaluatorRecall = new BinaryClassificationEvaluator()
         .setLabelCol("ground_truth")
         .setRawPredictionCol("Prediction")
-        .setMetricName("recall")*/
+        .setMetricName("recall")
 
 
       val pipeline3 = new Pipeline().setStages(Array(vectorExpander, customDecisionTree))
@@ -241,7 +243,7 @@ object MainApp {
       // Transform the DataFrame
       val resultDF3 = fittedPipelineModel3.transform(resultDF2)
       resultDF3.show()
-
+      */
 
     } else {
 
@@ -468,14 +470,51 @@ object MainApp {
 
 
     if (testLocal) {
+
+      /*
+      dataset = spark.read
+        .option("header", "true")
+        .option("quote", "\"") // Quote character
+        .option("escape", "\"") // Quote escape character (end of quote)
+        .option("multiLine", "true")
+        .option("sep", ",")
+        .option("charset", "UTF-8")
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/data-dataset-dataset_final.csv")
+
+
+      var schema: Seq[StructField] = Seq()
+      dataset.columns.foreach {
+        col =>
+          if (col.equals("ground_truth"))
+            schema = schema :+ StructField(col, IntegerType, nullable = true)
+          else
+            schema = schema :+ StructField(col, DoubleType, nullable = true)
+      }
+
+      dataset = spark.read
+        .option("header", "true")
+        .option("quote", "\"") // Quote character
+        .option("escape", "\"") // Quote escape character (end of quote)
+        .option("multiLine", "true")
+        .option("sep", ",")
+        .option("charset", "UTF-8")
+        .schema(StructType(schema))
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/data-dataset-dataset_final.csv")
+      */
+      finalTrainSet = dataset
       /* TRAINSET IN TEST MODE - è uguale al dataset (nessuno split) */
       if (num_cols > 0) {
-        lastColumns = dataset.columns.take(num_cols) ++ dataset.columns.takeRight(1)
+        lastColumns = finalTrainSet.columns.take(num_cols) ++ finalTrainSet.columns.takeRight(1)
 
-        finalTrainSet = dataset.select(lastColumns.map(col): _*)
+        finalTrainSet = finalTrainSet.select(lastColumns.map(col): _*)
       }
-      else
-        finalTrainSet = dataset
+
+      if( num_rows > 0) {
+
+        finalTrainSet = finalTrainSet.limit(num_rows)
+
+      }
+
     }
     else {
 
@@ -515,29 +554,65 @@ object MainApp {
 
    }
 
-    /*val dfWithConsecutiveIndex = finalTrainSet.withColumn("Index", row_number().over(Window.orderBy(monotonically_increasing_id())))
+    /*
+    val dfWithConsecutiveIndex = finalTrainSet.withColumn("Index", row_number().over(Window.orderBy(monotonically_increasing_id())))
     val orderedColumns : Array[String] = "Index" +: finalTrainSet.columns.map(col => col)
-    finalTrainSet = dfWithConsecutiveIndex.select(orderedColumns.map(col): _*)//.repartition(12)*/
+    finalTrainSet = dfWithConsecutiveIndex.select(orderedColumns.map(col): _*)*///.repartition(12)*/
 
     finalTrainSet.show()
-    val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm()
+
+
+    //val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm()
 
     val startTimeMillis = System.currentTimeMillis()
 
-    val decTree = dataPreparation.startAlgorithm(finalTrainSet, 0)
+    /*
+    // Assemble features into a vector
+    val featureColumns = finalTrainSet.columns.tail // Exclude the 'label' column
+    val assembler = new VectorAssembler().setInputCols(featureColumns).setOutputCol("features")
+    val dfAssembled = assembler.transform(finalTrainSet)
+
+    dfAssembled.show()
+    // Create a DecisionTreeClassifier
+    val dt = new ml.classification.DecisionTreeClassifier().setLabelCol("ground_truth").setFeaturesCol("features")
+
+    // Create a Pipeline with the assembler and the decision tree
+    val pipeline = new Pipeline().setStages(Array(assembler, dt))
+
+    val dtModel = dt.fit(dfAssembled)
+
+    // Train the model
+    //val dtModel = pipeline.fit(dfAssembled)
+
+
+    // Make predictions on the test data
+    val predictions = dtModel.transform(dfAssembled)
+
+
+
+
+
+
+    */
+    // DA PROVARE
+    val decisionTreeMaxDepth = 100
+    val customDecisionTree = new DecisionTreeClassifier()
+      .setMaxDepth(decisionTreeMaxDepth)
+
+    // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
+    val decTree = customDecisionTree.fit(finalTrainSet.cache())
+    //val decTree = dataPreparation.startAlgorithm(finalTrainSet, 0)
 
     // Record the end time
     val endTimeMillis = System.currentTimeMillis()
-
     // Calculate the elapsed time
     val elapsedTimeMillis = endTimeMillis - startTimeMillis
     // Print the result
     println(s"Elapsed Time: $elapsedTimeMillis milliseconds")
-
     decTree.asInstanceOf[Node].writeRulesToFile("./treeOutput.txt")
 
     if (testSet != null) {
-      val predictedLabels = decTree.predict(testSet, decTree)
+      val predictedLabels = decTree.getDecisionTree.predict(testSet, decTree.getDecisionTree)
 
       println("predictedLabels")
       println(predictedLabels.mkString("Array(", ", ", ")"))
@@ -567,6 +642,8 @@ object MainApp {
       println(s"Recall: $recall")
       println(s"F1-Score: $f1Score")
     }
+
+
 
 
     if(testLocal) {

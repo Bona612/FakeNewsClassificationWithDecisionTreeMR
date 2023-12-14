@@ -117,7 +117,8 @@ class MapReduceAlgorithm2() {
               case (col, idx) =>
                 ((col, row(idx_label).asInstanceOf[Int], row(idx).asInstanceOf[Double]), 1)
             }
-        }.reduceByKey(_+_)
+        }
+        .reduceByKey(_+_)
         .map {
 
            case ((attr, label, value), count) =>
