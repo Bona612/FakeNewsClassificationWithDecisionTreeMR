@@ -5,7 +5,7 @@ import org.apache.spark.ml.Model
 import org.apache.spark.ml.param.{Param, ParamMap}
 import org.apache.spark.ml.util.{DefaultParamsWritable, Identifiable}
 import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.functions.{arrays_zip, explode, lit, monotonically_increasing_id, row_number, udf}
+import org.apache.spark.sql.functions.{arrays_zip, col, explode, lit, monotonically_increasing_id, row_number, udf}
 import org.apache.spark.sql.{DataFrame, Dataset, Row}
 import org.apache.spark.sql.types.{ArrayType, IntegerType, StructField, StructType}
 
@@ -28,28 +28,26 @@ class DecisionTreeModel(override val uid: String) extends Model[DecisionTreeMode
   override def transform(dataset: Dataset[_]): DataFrame = {
     // Your prediction logic here
     // For simplicity, let's return the input dataset as is
-    val dataframe: DataFrame = dataset.toDF
-    val predictionsArray: Array[Int] = $(decisionTree).predict(dataframe, $(decisionTree))
+    val windowSpec = Window.orderBy("ground_truth")
 
-    // Your array of integers
-    val intArray = Array(1, 2, 3, 4, 5)
+    val dataframe: DataFrame = dataset.toDF
+
+    // Aggiungi una colonna con l'indice a partire da 0
+    val dfWithIndex = dataframe.withColumn("Index", row_number().over(windowSpec))
+    val predictionsArray: Array[(Int, Int)] = $(decisionTree).predict(dfWithIndex, $(decisionTree))
 
     // Define the schema for the DataFrame
-    val schema = StructType(Seq(StructField("Prediction", IntegerType, true)))
+    val schema = StructType(Seq(StructField("Index", IntegerType, true), StructField("Prediction", IntegerType, true)))
 
     // Create a Seq of Rows with the array elements
-    val rows = intArray.map(value => Row(value))
+    val rows = predictionsArray.map(pair => Row(pair._1, pair._2))
 
     // Create the DataFrame using createDataFrame with the explicit schema and Seq of Rows
     val predictionsCol = dataset.sparkSession.createDataFrame(dataset.sparkSession.sparkContext.parallelize(rows), schema)
 
-    // Add a unique index over partitions
-    val resultDF = predictionsCol.withColumn("Index", monotonically_increasing_id())
-    // Add a unique index over partitions
-    val resultDF2 = dataframe.withColumn("Index", monotonically_increasing_id())
-
     // Perform the join based on the indices
-    val joinedDF = resultDF.join(resultDF2, "Index")
+    val joinedDF = predictionsCol.join(dfWithIndex, "Index")
+    joinedDF.show()
 
     // Reorder the result based on the original order
     val finalDF = joinedDF.sort("Index").drop("Index")
@@ -73,10 +71,10 @@ sealed trait DecisionTree {
   def printToFile(filename: String, rule: String): String
   def getParent(): Option[DecisionTree]
 
-  def predict(input: DataFrame, decisionTree: DecisionTree): Array[Int]
+  def predict(input: DataFrame, decisionTree: DecisionTree): Array[(Int, Int)]
 }
 
-case class Leaf(label: String,parent: Option[DecisionTree]) extends DecisionTree {
+case class Leaf(label: String, parent: Option[DecisionTree]) extends DecisionTree {
   def getLabel(): String = { this.label }
 
   def printToFile(filename: String, rule: String): String = {
@@ -99,7 +97,7 @@ case class Leaf(label: String,parent: Option[DecisionTree]) extends DecisionTree
 
   override def getParent(): Option[DecisionTree] = {parent}
 
-  override def predict(input: DataFrame,decisionTree: DecisionTree): Array[Int] = { return null}
+  override def predict(input: DataFrame,decisionTree: DecisionTree): Array[(Int, Int)] = { return null}
 }
 
 case class Node(var attribute: String, value: Double, var left: DecisionTree, var right: DecisionTree, parent: Option[Node]) extends DecisionTree {
@@ -181,34 +179,95 @@ case class Node(var attribute: String, value: Double, var left: DecisionTree, va
     parent
   }
 
-  override def predict(input: DataFrame, decisionTree: DecisionTree): Array[Int] = {
-    var currentNode = Option(decisionTree)
-    // Definisci una finestra per l'ordinamento
-    val windowSpec = Window.orderBy(lit(1))
+  override def predict(test: DataFrame, decisionTree: DecisionTree): Array[(Int, Int)] = {
 
-    // Aggiungi una colonna con l'indice a partire da 0
-    val dfWithIndex = input.withColumn("index", row_number().over(windowSpec) - 1)
-    println("dfWithIndex.show()")
-    dfWithIndex.show()
-    val res: Array[Int] = new Array[Int](dfWithIndex.count().toInt)
     println("DENTRO PREDICT")
 
-    dfWithIndex.collect().foreach { row: Row =>
+
+    // Convert DataFrame to RDD and use zipWithIndex
+    val resultArray = test.rdd.map {
+      case (row: Row) =>
+        val index = row.getAs[Int]("Index")
+        var currentNode = Option(decisionTree)
+        var stop: Boolean = true
+        var valueToRet = -1
+
+        println("famme vede: " + index.toString)
+        while (stop) {
+          currentNode match {
+            case None => {
+              println("QUALCOSA NON VA NELLA PREDICt")
+            }
+            case Some(value) => {
+              if (value.isInstanceOf[Leaf]) {
+                //val index = row.getAs[Int]("Index")
+                println("pred: " + value.asInstanceOf[Leaf].getLabel())
+                //res(index) = value.asInstanceOf[Leaf].getLabel().toInt
+                valueToRet = value.asInstanceOf[Leaf].getLabel().toInt
+                //println(res(index))
+                stop = false
+                //println("RES")
+                //println(res.mkString("Array(", ", ", ")"))
+              }
+              else {
+                println("attr: " + value.asInstanceOf[Node].getAttribute() + ", value: " + value.asInstanceOf[Node].getValue().toString)
+                if (value.asInstanceOf[Node].getValue() > row.getAs[Double](value.asInstanceOf[Node].getAttribute())) {
+                  value.asInstanceOf[Node].getLeftChild() match {
+                    case None => {}
+                    case Some(value) => {
+                      if (value.isInstanceOf[Leaf]) {
+                        currentNode = Option(value.asInstanceOf[Leaf])
+                      }
+                      else currentNode = Option(value.asInstanceOf[Node])
+                    }
+                  }
+                }
+                else {
+                  println("attr: " + value.asInstanceOf[Node].getAttribute() + ", value: " + value.asInstanceOf[Node].getValue().toString)
+
+                  value.asInstanceOf[Node].getRightChild() match {
+                    case None => {}
+                    case Some(value) => {
+                      if (value.isInstanceOf[Leaf]) {
+                        currentNode = Option(value.asInstanceOf[Leaf])
+                      }
+                      else currentNode = Option(value.asInstanceOf[Node])
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Return the result along with the index
+        (index, valueToRet)
+    }.collect()
+
+    /*
+    // collect()
+    val array = dfWithIndex.rdd.map { row: Row =>
       var stop: Boolean = true
+      var valueToRet = -1
 
       while (stop) {
         currentNode match {
-          case None => {}
+          case None => {
+            println("QUALCOSA NON VA NELLA PREDICt")
+          }
           case Some(value) => {
             if (value.isInstanceOf[Leaf]) {
               val index = row.getAs[Int]("index")
+              println("pred: " + value.asInstanceOf[Leaf].getLabel())
               res(index) = value.asInstanceOf[Leaf].getLabel().toInt
+              valueToRet = value.asInstanceOf[Leaf].getLabel().toInt
               println(res(index))
               stop = false
               println("RES")
               println(res.mkString("Array(", ", ", ")"))
             }
             else {
+              println("value: " + value.asInstanceOf[Node].getValue().toString)
               if (value.asInstanceOf[Node].getValue() > row.getAs[Double](value.asInstanceOf[Node].getAttribute())) {
                 value.asInstanceOf[Node].getLeftChild() match {
                   case None => {}
@@ -235,9 +294,15 @@ case class Node(var attribute: String, value: Double, var left: DecisionTree, va
           }
         }
       }
+
+      valueToRet
     }
-    println(res.mkString("Array(", ", ", ")"))
-    res
+    */
+
+    println("ecco l'array")
+    resultArray.foreach{println}
+    //println(res.mkString("Array(", ", ", ")"))
+    resultArray
   }
 }
 

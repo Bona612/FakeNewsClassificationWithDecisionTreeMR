@@ -32,12 +32,26 @@ class DecisionTreeClassifier(override val uid: String) extends Estimator[Decisio
     // Your training logic here
     // For simplicity, let's assume you have a feature column called "features" and a label column called "label"
 
-    val alg: MapReduceAlgorithm3 = new MapReduceAlgorithm3()
+    //val alg3: MapReduceAlgorithm3 = new MapReduceAlgorithm3()
+    val alg: MapReduceAlgorithm_vDF = new MapReduceAlgorithm_vDF()
 
-    val decTre: DecisionTree = alg.startAlgorithm(dataset.toDF, $(maxDepth))
+    val startTimeMillis = System.currentTimeMillis()
+
+    // Elapsed Time: 32768 milliseconds
+    //val decTree = alg3.startAlgorithm(dataset.toDF, $(maxDepth))
+    val decTree: DecisionTree = alg.startAlgorithm_vDF(dataset.toDF, $(maxDepth))
+
+    // Record the end time
+    val endTimeMillis = System.currentTimeMillis()
+
+    // Calculate the elapsed time
+    val elapsedTimeMillis = endTimeMillis - startTimeMillis
+    // Print the result
+    println(s"Elapsed Time: $elapsedTimeMillis milliseconds")
+
 
     // For now, let's create a dummy model
-    val model = new DecisionTreeModel(uid).setDecisionTree(decTre)
+    val model = new DecisionTreeModel(uid).setDecisionTree(decTree)
 
     // Return the trained model
     model

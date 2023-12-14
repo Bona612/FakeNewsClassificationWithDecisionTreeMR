@@ -26,7 +26,9 @@ import scala.util.Try
 //import org.apache.spark.sql.functions.{col, lit, rand, row_number}
 import org.apache.spark.sql.functions._
 import org.apache.hadoop.fs.{FileSystem, Path}
-
+import decisiontreealg.Node
+import decisiontreealg.DecisionTree
+import decisiontreealg.Leaf
 import scala.math.Fractional.Implicits.infixFractionalOps
 
 object MainApp {
@@ -52,7 +54,7 @@ object MainApp {
     var defaultMaxVocabSize = 500
     var maxVocabSizeCV = 0
 
-    var num_cols = 15  // 0 is default, > 0 change number of cols to take
+    var num_cols = 5  // 0 is default, > 0 change number of cols to take
     var num_rows = 0
 
     if (testLocal) {
@@ -161,7 +163,6 @@ object MainApp {
         .setOutputAsArray(true)
         .setCleanAnnotations(false)
 
-
       // Create a pipeline with the tokenizer and stemmer
       val pipeline = new Pipeline().setStages(Array(textCleaner, documentAssembler, tokenizer, stemmer, finisher, cv, idf))
 
@@ -202,6 +203,9 @@ object MainApp {
 
       // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
       val modelDT = customDecisionTree.fit(dataset.repartition(4).cache())
+
+      modelDT.getDecisionTree.asInstanceOf[Node].writeRulesToFile("C:\\Users\\bocca\\Desktop\\perAndri\\vedem.txt")
+
 
       // Make predictions on a test dataset
       val predictions = modelDT.transform(dataset)
@@ -624,8 +628,8 @@ object MainApp {
       println("trueLabels")
       println(trueLabels.mkString("Array(", ", ", ")"))
 
-
-      val (truePositives, falsePositives, falseNegatives) = calculateMetrics(trueLabels, predictedLabels)
+      val due = predictedLabels.map(pair => pair._2)
+      val (truePositives, falsePositives, falseNegatives) = calculateMetrics(trueLabels, due)
 
       // Print the results
       println(s"True Positives: $truePositives")
