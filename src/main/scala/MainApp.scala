@@ -6,12 +6,11 @@ import java.io.File
 import org.apache.hadoop.conf.Configuration
 import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
 import dataacquisition.{DataAcquisition, TextCleaner, VectorExpander}
-import decisiontreealg.{DecisionTreeClassifier, MapReduceAlgorithm}
 
 import java.nio.file.{Files, Path, Paths}
 import scala.language.postfixOps
 import scala.sys.process._
-import decisiontree.DecisionTree
+import decisiontree.DecisionTreeClassifier
 import decisiontree.Node
 import org.apache.spark.{SparkFiles, ml}
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
@@ -24,11 +23,9 @@ import utils.GCSUtils
 
 import scala.util.Try
 //import org.apache.spark.sql.functions.{col, lit, rand, row_number}
+import decisiontree.{Leaf, NewDecisionTree, Node}
 import org.apache.spark.sql.functions._
 import org.apache.hadoop.fs.{FileSystem, Path}
-import decisiontreealg.Node
-import decisiontreealg.DecisionTree
-import decisiontreealg.Leaf
 import scala.math.Fractional.Implicits.infixFractionalOps
 
 object MainApp {
@@ -54,14 +51,16 @@ object MainApp {
     var defaultMaxVocabSize = 500
     var maxVocabSizeCV = 0
 
-    var num_cols = 5  // 0 is default, > 0 change number of cols to take
+    var num_cols = 0  // 0 is default, > 0 change number of cols to take
     var num_rows = 0
 
     if (testLocal) {
 
       spark  =SparkSession.builder()
-        .master("local[*]")
+        .master("local[6]")
         .appName("Fake News Classification")
+        .config("spark.sql.autoBroadcastJoinThreshold", "-1")
+        .config("spark.sql.adaptive.enabled","true")
         .getOrCreate()
 
       /* LOCAL TEST */
@@ -263,51 +262,15 @@ object MainApp {
       defaultMaxVocabSize = 500
       maxVocabSizeCV = Try(args(3).toInt).getOrElse(defaultMaxVocabSize)
 
-      num_cols = Try(args(3).toInt).getOrElse(0)
-      num_rows = Try(args(4).toInt).getOrElse(0)
+
 
       // RICORDARSI DI SETTARE HADOOP CONFIURATION PER LEGGERE E SCRIVERE DIRETTAMENTE DA GCS
-      val keyfileName = "prefab-bruin-402414-a2db7e809915.json"
-      val keyfileGCSPath = keyfileName //s"gs://$inputPath/$keyfileName"
-      val keyfileLocalPath = "."
-      //GCSUtils.getFile(keyfileGCSPath, s"$keyfileLocalPath/$keyfileName", spark)
+      val keyfileName = "dogwood-mission-408515-3c37fd13e43f.json"
 
-      /*s"gsutil cp gs://your-gcs-bucket/spring-cab-402321-b19bfffc91be.json ./"
-      val copyKeyfileCommand = s"hdfs dfs -copyFromLocal ./spring-cab-402321-b19bfffc91be.json hdfs:///user/"
-      val copyKeyfileCommandExitCode = copyKeyfileCommand ! */
-
-
-      // Set your Hadoop Configuration with GCS credentials
-      /*
       val hadoopConf = spark.sparkContext.hadoopConfiguration
-      hadoopConf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-      hadoopConf.set("google.cloud.auth.service.account.enable", "true")
-      hadoopConf.set("google.cloud.auth.service.account.json.keyfile", "hdfs:///user/prefab-bruin-402414-a2db7e809915.json")//s"$keyfileLocalPath/$keyfileName")
-      */
-      val hadoopConf = spark.sparkContext.hadoopConfiguration
-      val hdfsFilePath = "hdfs:///user/prefab-bruin-402414-a2db7e809915.json"
 
-      /*
-      // PROVA 1
-      // Create a Hadoop FileSystem object
-      val fs = FileSystem.get(new org.apache.hadoop.fs.Path(hdfsFilePath).toUri, hadoopConf)
 
-      // Download the key file from HDFS to the local file system
-      fs.copyToLocalFile(new org.apache.hadoop.fs.Path(hdfsFilePath), new org.apache.hadoop.fs.Path( s"$keyfileLocalPath/$keyfileName"))
-
-      // Close the FileSystem object
-      fs.close()
-
-      // Add the local file to the classpath
-      hadoopConf.addResource(new org.apache.hadoop.fs.Path("file://" + s"$keyfileLocalPath/$keyfileName"))
-      */
-      // PROVA 2
-
-      // Add the file to be distributed to all nodes
-      //spark.sparkContext.addFile(hdfsFilePath)
-
-      // Now, you can access the file using SparkFiles.get method
-      val distributedFilePath = "/prefab-bruin-402414-a2db7e809915.json"
+      val distributedFilePath = "/dogwood-mission-408515-3c37fd13e43f.json"
 
       // Set your Hadoop Configuration with GCS credentials
       hadoopConf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
@@ -325,56 +288,11 @@ object MainApp {
       println(s"Spark ExtraJavaOptions: $sparkExtraJavaOptions")
 
 
-      val decisionTreePath = "gs://fnc_bucket_final" // "/Users/luca/Desktop/tree.txt"
-      //val tree = DecisionTree.fromFile(decisionTreePath)
-
-      //var directoryStream = Files.list(Paths.get(decisionTreePath))
-      //var fileList = directoryStream.toArray
-
-      val currentDir = new File(".").getCanonicalPath
-      println(s"currentDir $currentDir")
-
-      println(s"Input Path $inputPath")
-      println(inputPath)
-      println(s"Output Path $outputPath")
-      println(outputPath)
-      // NON USARE Paths.get() per GCS
-      println(Paths.get(inputPath).toString)
-      println(Paths.get(inputPath).resolve("data/download").toString)
-      println(s"$inputPath/data/download")
-
-      /*
-      var tree: DecisionTree = null
-
-      fileList.foreach { path =>
-        if (path.asInstanceOf[Path].toString == Paths.get(decisionTreePath).resolve("tree.txt").toString) {
-
-          tree = DecisionTree.fromFile(decisionTreePath+"/tree.txt")
-        }
-      }
-
-      if(tree != null)
-        return
-       */
-      /*
-      var node : DecisionTree = Node("Prova",0.3,null,null,None)
-      var tmp = node
-      tmp.asInstanceOf[Node].setAttribute()
-
-      println(node.asInstanceOf[Node].getAttribute())
-      println(tmp.asInstanceOf[Node].getAttribute())
-      */
-
-      //tree.asInstanceOf[Node].writeRulesToFile("/Users/luca/Desktop/treeOutput.txt")
-
-      val prova_hdfs = "hdfs dfs -ls hdfs:///user/"
-      var prova_hdfsExitCode = prova_hdfs !
 
       println("Start")
       val downloadPath: String = "data/download"
       val datasetPath = "data/dataset"
-      val csv = "dataset_final.csv"
-
+      val csv = args(4)
 
       // Creating a list of strings
       // "jruvika/fake-news-detection",
@@ -386,32 +304,6 @@ object MainApp {
       val columnsMap: Map[String, String] = Map("million-headlines" -> "headline_text", "fake-and-real-news-dataset" -> "title", "fake-news" -> "title", "textdb3" -> "title", "fake-news-classification" -> "title", "misinformation-fake-news-text-dataset-79k" -> "text", "fake-news-detection" -> "title", "fake-news-log" -> "title", "fake-news-dataset-combined-different-sources" -> "title")
       val textColumn: String = "title"
 
-      /*
-      // Creating a list of strings
-      val kaggleDatasetList: List[String] = List("mrisdal/fake-news")
-      // Create a Map
-      val csvPerDataset: Map[String, String] = Map("fake-news" -> "fake.csv")
-      val columnsMap: Map[String, String] = Map("fake-news" -> "title")
-      val textColumn: String = "title"
-      */
-
-      // Use the Files.list method to get a Stream of paths in the directory
-      //directoryStream = Files.list(Paths.get(datasetPath))
-
-
-      /*
-      // Convert the Stream to a Scala List and print the file names
-      fileList = directoryStream.toArray
-      fileList.foreach { path =>
-        if (path.asInstanceOf[Path].toString == Paths.get(datasetPath).resolve(csv).toString) {
-          isDatasetPresent = true
-        }
-      }
-    */
-      // Close the directory stream
-      //directoryStream.close()
-
-
       val isDatasetPresent: Boolean = true
 
       // If the dataset isn't created, load the dataset and save it
@@ -419,11 +311,9 @@ object MainApp {
         // INSERIRE IL PROCESSO DI TRY DA ARGS(3), GESTIRE SIA SUCCESS CHE FAILURE (FATTO SOPRA)
         val dataAcquisition: DataAcquisition = new DataAcquisition(kaggleDatasetList, csvPerDataset, columnsMap, textColumn, s"$inputPath/$downloadPath", s"$inputPath/$datasetPath", csv, maxVocabSizeCV, spark)
         dataset = dataAcquisition.loadDataset()
-        println("Dataset loaded succesfully!")
+        println("Dataset loaded successfully!")
       }
       else {
-
-        // QUI INSERIRE IL LOADING DIRETTO DA GCS, FORSE AGGIUNGERE QUALCHE CONFIG
 
         dataset = spark.read
           .option("header", "true")
@@ -438,7 +328,7 @@ object MainApp {
         var schema: Seq[StructField] = Seq()
         dataset.columns.foreach {
           col =>
-            if (col.equals("ground_truth"))
+            if (col.equals("ground_truth") || col.equals("Index"))
               schema = schema :+ StructField(col, IntegerType, nullable = true)
             else
               schema = schema :+ StructField(col, DoubleType, nullable = true)
@@ -459,23 +349,20 @@ object MainApp {
 
         dataset.show()
 
-
       }
     }
-
 
 
     println("DATASET COUNT", dataset.count())
 
 
     var lastColumns: Array[String] = null
-    var finalTrainSet: DataFrame = null
+    var trainSet: DataFrame = null
     var testSet: DataFrame = null
 
 
     if (testLocal) {
 
-      /*
       dataset = spark.read
         .option("header", "true")
         .option("quote", "\"") // Quote character
@@ -483,13 +370,13 @@ object MainApp {
         .option("multiLine", "true")
         .option("sep", ",")
         .option("charset", "UTF-8")
-        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/data-dataset-dataset_final.csv")
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset100k.csv")
 
 
       var schema: Seq[StructField] = Seq()
       dataset.columns.foreach {
         col =>
-          if (col.equals("ground_truth"))
+          if (col.equals("ground_truth") || col.equals("Index"))
             schema = schema :+ StructField(col, IntegerType, nullable = true)
           else
             schema = schema :+ StructField(col, DoubleType, nullable = true)
@@ -503,152 +390,83 @@ object MainApp {
         .option("sep", ",")
         .option("charset", "UTF-8")
         .schema(StructType(schema))
-        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/data-dataset-dataset_final.csv")
-      */
-      finalTrainSet = dataset
-      /* TRAINSET IN TEST MODE - è uguale al dataset (nessuno split) */
-      if (num_cols > 0) {
-        lastColumns = finalTrainSet.columns.take(num_cols) ++ finalTrainSet.columns.takeRight(1)
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset100k.csv")
 
-        finalTrainSet = finalTrainSet.select(lastColumns.map(col): _*)
-      }
+
+      /* TRAINSET IN TEST MODE - è uguale al dataset (nessuno split) */
+
 
       if( num_rows > 0) {
 
-        finalTrainSet = finalTrainSet.limit(num_rows)
+        dataset = dataset.limit(num_rows)
 
       }
 
-    }
-    else {
+      if (num_cols > 0) {
+        lastColumns = dataset.columns.take(num_cols) ++ dataset.columns.takeRight(1)
 
-      /* TRAINSET IN CLUSTER MODE */
-
-      /*// Conta il numero di righe per ciascuna classe
-      val classCounts = dataset.groupBy("ground_truth").count()
-      println("ClassCounts" , classCounts)*/
-
-      // Dividi il DataFrame in due parti: una con label 0 e una con label 1
-      val dfLabel0 = dataset.filter(col("ground_truth") === 0)
-      val dfLabel1 = dataset.filter(col("ground_truth") === 1)
+        dataset = dataset.select(lastColumns.map(col): _*)
+      }
 
       /*
-      val label0_count = dfLabel0.count().toInt
-      val label1_count = dfLabel1.count().toInt
+      val dfWithConsecutiveIndex = trainSet.withColumn("Index", row_number().over(Window.orderBy(monotonically_increasing_id())))
+      val orderedColumns : Array[String] = "Index" +: trainSet.columns.map(col => col)
+      trainSet = dfWithConsecutiveIndex.select(orderedColumns.map(col): _*)*/
 
-      val minCount = label0_count.min(label1_count)
-      // Prendi un campione bilanciato per ciascuna label
-      trainLabel0 = dfLabel0.sample(withReplacement = false, minCount * 0.8 / label0_count) //SI PUÒ AGGIUNGERE IL SEED
-      val trainLabel1 = dfLabel1.sample(withReplacement = false, minCount * 0.8 / label1_count) //SI PUÒ AGGIUNGERE IL SEED*/
 
-      val trainLabel0 = dfLabel0.limit(num_rows) //SI PUÒ AGGIUNGERE IL SEED
-      val trainLabel1 = dfLabel1.limit(num_rows)
+    }
 
-      // Unisci i due campioni per ottenere il set di addestramento bilanciato
-      val trainSet = trainLabel0.unionAll(trainLabel1)
-      lastColumns = trainSet.columns.take(num_cols) ++ trainSet.columns.takeRight(1)
 
-      finalTrainSet = trainSet.select(lastColumns.map(col): _*).persist()
+    /* TRAINSET IN CLUSTER MODE */
 
-      // Rimuovi le righe utilizzate per l'addestramento dal DataFrame originale
-      testSet = dataset.exceptAll(trainSet)
+    // Dividi il DataFrame in due parti: una con label 0 e una con label 1
+    val dfLabel0 = dataset.filter(col("ground_truth") === 0)
+    val dfLabel1 = dataset.filter(col("ground_truth") === 1)
 
-      // Suddividi il rimanente in test e validation
-      //val Array(testSet, validationSet) = remainingData.randomSplit(Array(0.8, 0.2))
+    val label0_count = dfLabel0.count().toInt
+    val label1_count = dfLabel1.count().toInt
 
-   }
+    val minCount = label0_count.min(label1_count)
+    // Prendi un campione bilanciato per ciascuna label
+    val trainLabel0 = dfLabel0.sample(withReplacement = false, minCount * 0.8 / label0_count)
+    val trainLabel1 = dfLabel1.sample(withReplacement = false, minCount * 0.8 / label1_count)
 
-    /*
-    val dfWithConsecutiveIndex = finalTrainSet.withColumn("Index", row_number().over(Window.orderBy(monotonically_increasing_id())))
-    val orderedColumns : Array[String] = "Index" +: finalTrainSet.columns.map(col => col)
-    finalTrainSet = dfWithConsecutiveIndex.select(orderedColumns.map(col): _*)*///.repartition(12)*/
+    // Unisci i due campioni per ottenere il set di addestramento bilanciato
+    trainSet = trainLabel0.unionAll(trainLabel1)
 
-    finalTrainSet.show()
+    // Rimuovi le righe utilizzate per l'addestramento dal DataFrame originale
+    testSet = dataset.exceptAll(trainSet)
 
 
     //val dataPreparation: MapReduceAlgorithm = new MapReduceAlgorithm()
 
-    val startTimeMillis = System.currentTimeMillis()
-
-    /*
-    // Assemble features into a vector
-    val featureColumns = finalTrainSet.columns.tail // Exclude the 'label' column
-    val assembler = new VectorAssembler().setInputCols(featureColumns).setOutputCol("features")
-    val dfAssembled = assembler.transform(finalTrainSet)
-
-    dfAssembled.show()
-    // Create a DecisionTreeClassifier
-    val dt = new ml.classification.DecisionTreeClassifier().setLabelCol("ground_truth").setFeaturesCol("features")
-
-    // Create a Pipeline with the assembler and the decision tree
-    val pipeline = new Pipeline().setStages(Array(assembler, dt))
-
-    val dtModel = dt.fit(dfAssembled)
-
-    // Train the model
-    //val dtModel = pipeline.fit(dfAssembled)
-
-
-    // Make predictions on the test data
-    val predictions = dtModel.transform(dfAssembled)
-
-
-
-
-
-
-    */
     // DA PROVARE
     val decisionTreeMaxDepth = 100
     val customDecisionTree = new DecisionTreeClassifier()
       .setMaxDepth(decisionTreeMaxDepth)
 
     // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
-    val decTree = customDecisionTree.fit(finalTrainSet.cache())
-    //val decTree = dataPreparation.startAlgorithm(finalTrainSet, 0)
+    val decTree = customDecisionTree.fit(trainSet.cache())
 
-    // Record the end time
-    val endTimeMillis = System.currentTimeMillis()
-    // Calculate the elapsed time
-    val elapsedTimeMillis = endTimeMillis - startTimeMillis
-    // Print the result
-    println(s"Elapsed Time: $elapsedTimeMillis milliseconds")
-    decTree.asInstanceOf[Node].writeRulesToFile("./treeOutput.txt")
+    decTree.getDecisionTree.printAllNodes(decTree.getDecisionTree.getTreeNode)
+    decTree.getDecisionTree.saveToFile("./tree.ser")
 
     if (testSet != null) {
-      val predictedLabels = decTree.getDecisionTree.predict(testSet, decTree.getDecisionTree)
+      val predictedLabels = decTree.transform(testSet)
 
-      println("predictedLabels")
-      println(predictedLabels.mkString("Array(", ", ", ")"))
-      val tmp: Array[Any] = testSet.select("ground_truth").collect().map(row => row(0))
-      val trueLabels: Array[Int] = tmp.collect {
-        case i: Int => i
-      }
+      val predictionsWithDoubleLabels = predictedLabels.withColumn("ground_truth", col("ground_truth").cast("Double")).withColumn("Prediction", col("Prediction").cast("Double"))
+      val evaluatorAccuracy = new BinaryClassificationEvaluator()
+        .setLabelCol("ground_truth")
+        .setRawPredictionCol("Prediction")
+        .setMetricName("areaUnderROC")
+      println(evaluatorAccuracy.evaluate(predictionsWithDoubleLabels).toString)
 
-      println("trueLabels")
-      println(trueLabels.mkString("Array(", ", ", ")"))
-
-      val due = predictedLabels.map(pair => pair._2)
-      val (truePositives, falsePositives, falseNegatives) = calculateMetrics(trueLabels, due)
-
-      // Print the results
-      println(s"True Positives: $truePositives")
-      println(s"False Positives: $falsePositives")
-      println(s"False Negatives: $falseNegatives")
-
-      // Calculate precision, recall, and F1-score
-      val precision = truePositives.toDouble / (truePositives + falsePositives)
-      val recall = truePositives.toDouble / (truePositives + falseNegatives)
-      val f1Score = 2 * (precision * recall) / (precision + recall)
-
-      // Print precision, recall, and F1-score
-      println(s"Precision: $precision")
-      println(s"Recall: $recall")
-      println(s"F1-Score: $f1Score")
+      val evaluatorPrecision = new BinaryClassificationEvaluator()
+        .setLabelCol("ground_truth")
+        .setRawPredictionCol("Prediction")
+        .setMetricName("areaUnderPR")
+      println(evaluatorPrecision.evaluate(predictionsWithDoubleLabels).toString)
     }
-
-
-
 
     if(testLocal) {
       var userInput = ""
@@ -684,33 +502,6 @@ object MainApp {
    }
 
    (truePositives, falsePositives, falseNegatives)
- }
-
- object MetricsCalculator {
-   def main(args: Array[String]): Unit = {
-     // Example: True labels and predicted labels
-     val trueLabels = Array(1, 0, 1, 0, 1, 0, 0, 1, 1, 0)
-     val predictedLabels = Array(1, 0, 0, 0, 1, 1, 0, 1, 1, 1)
-
-     // Calculate true positives, false positives, and false negatives
-     val (truePositives, falsePositives, falseNegatives) = calculateMetrics(trueLabels, predictedLabels)
-
-     // Print the results
-     println(s"True Positives: $truePositives")
-     println(s"False Positives: $falsePositives")
-     println(s"False Negatives: $falseNegatives")
-
-     // Calculate precision, recall, and F1-score
-     val precision = truePositives.toDouble / (truePositives + falsePositives)
-     val recall = truePositives.toDouble / (truePositives + falseNegatives)
-     val f1Score = 2 * (precision * recall) / (precision + recall)
-
-     // Print precision, recall, and F1-score
-     println(s"Precision: $precision")
-     println(s"Recall: $recall")
-     println(s"F1-Score: $f1Score")
-   }
-
  }
 
 

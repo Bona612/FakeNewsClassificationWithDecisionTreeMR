@@ -1,64 +1,67 @@
 package decisiontreealg
 
-import decisiontree.{DecisionTree, Leaf, Node}
+import decisiontree.{Leaf, Node, TreeNode}
+import org.apache.spark
+import org.apache.spark.{HashPartitioner, SparkContext}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.functions.{assert_true, col, collect_list, collect_set, countDistinct, expr, lit, udf}
-import org.apache.spark.sql.{DataFrame, Dataset, Row, functions}
-import spire.compat.ordering
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions._
 
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
+import scala.:+
 import scala.math.log10
-
 
 class MapReduceAlgorithm() {
 
-  def startAlgorithm(dataset: DataFrame, maxDepth: Int): DecisionTree = {
+  def startAlgorithm(dataset: DataFrame, maxDepth: Int): TreeNode = {
 
-    val cols = dataset.columns.drop(1).dropRight(1) //discard class column
+    val cols = dataset.columns.drop(1).dropRight(1).zipWithIndex //discard class column
 
     val idx_label = dataset.columns.length-1
 
-    val attrTable = createAttrTable(dataset, idx_label, cols).persist()
+    //val table = createAttrTable(dataset, idx_label, cols)
 
-    println(s"num partition attrTable: ${attrTable.partitions.length}")
-    mainAlgorithm(dataset, attrTable, None, idx_label, 0)
+    mainAlgorithm(dataset, cols, None, idx_label, 0)
+
   }
 
-  private def createAttrTable(dataset: DataFrame, idx_label:Int, cols: Array[String]): RDD[((String, Int, Int, Double), Int)] = {
+  private def createAttrTable(dataset: DataFrame, idx_label: Int, cols: Array[(String, Int)])
+  : RDD[(String, (Int, Double, Set[Int]))] = {
 
 
     dataset.rdd.flatMap {
-        row =>
-          cols.zipWithIndex.map{
-            case (col, idx) =>
-              ((col,  row(0).asInstanceOf[Int], row(idx_label).asInstanceOf[Int], row(idx+1).asInstanceOf[Double]), 1)
-          }
-      }
-
-  }
-
-  private def filterAttrTable(attrTable: RDD[((String, Int, Int, Double), Int)], removeRows: Seq[Int], bestAttr: String) : RDD[((String, Int, Int, Double), Int)] = {
-
-    attrTable.filter{case ((attr,row_idx, _ ,_), _) => removeRows.contains(row_idx) && attr != bestAttr}
-  }
-
-  private def getRowIndex(dataset: DataFrame): Seq[Int] = {
-
-    dataset.select("Index").collect().map(row => row(0).asInstanceOf[Int])
-  }
-
-  private def removeUniqueCols(dataset: DataFrame):DataFrame = {
-
-    // Identify columns with unique values
-    val uniqueColumns = dataset.columns.drop(1).dropRight(1).filter { colName =>
-      dataset.select(col(colName)).distinct().count() == 1
+      row =>
+        cols.map {
+          case (col, idx) =>
+            ((col, row(idx_label).asInstanceOf[Int], row(idx + 1).asInstanceOf[Double]), Set(row(0).asInstanceOf[Int]))
+        }
     }
+    .reduceByKey(_ ++ _)
+    .map {
 
-    // Select columns with non-unique values
-    dataset.select(dataset.columns.filter(!uniqueColumns.contains(_)).map(col): _*)
+      case ((attr, label, value), count) =>
+
+        (attr, (label, value, count))
+    }
+    .persist()
+    .partitionBy(new HashPartitioner(6))
+
   }
-  private def mainAlgorithm(dataset: DataFrame, attrTable: RDD[((String, Int, Int, Double), Int)], par: Option[Node], idx_label: Int,depthTree: Int): DecisionTree = {
+
+  private def filterAttrTable(table: RDD[(String, (Int, Double, Set[Int]))],
+                              rowsToKeep: Set[Int]): RDD[(String, (Int, Double, Set[Int]))] = {
+
+    table
+      .mapValues{ case (label, value, count) => (label, value, count.intersect(rowsToKeep))}
+      .filter{ case (_,(_, _, count)) => count.nonEmpty}.persist()
+
+  }
+
+  private def mainAlgorithm(dataset: DataFrame,
+                            //attrTable: RDD[(String, (Int, Double, Set[Int]))],
+                            cols: Array[(String,Int)],
+                            par: Option[TreeNode],
+                            idx_label: Int,
+                            depthTree: Int): TreeNode = {
 
 
     println("start calc entropy...")
@@ -66,48 +69,72 @@ class MapReduceAlgorithm() {
     val (entropy, (maxClass, _), allTable) = calcEntropyTable(dataset)
 
     if (entropy <= 0.3f || depthTree >= 100) { //stop check
-      return Leaf(label = maxClass, parent = par)
+      return Leaf(par, maxClass.toInt)
     }
 
     println("start data preparation...")
 
-    println(s"num partition attrTable: ${attrTable.partitions.length}")
-    val (rowsAttrTable, distinctTable, countTableSplit) = dataPreparation(dataset, attrTable)
 
-    if (countTableSplit == null) { //stop check
-      return Leaf(label = maxClass, parent = par)
+    val countTable = dataPreparation(dataset, cols)//attrTable)
+
+    if (countTable == null) { //stop check
+      return Leaf(par, maxClass.toInt)
     }
 
     println("find best split...")
-    val bestAttr = findBestSplit(countTableSplit, entropy, allTable.toInt)
+    //val (bestAttr_Value, rowsSplit) = findBestSplit(countTable, entropy, allTable.toInt)
+    val bestAttr = findBestSplit(countTable, entropy, allTable.toInt)
 
-    val distinct_vals: Seq[Double] = distinctTable.lookup(bestAttr).head
+    bestAttr match {
 
-    println("foreach...")
-    //val distinct_vals = dataset.select(bestAttr).distinct().collect().map(row => row(0).asInstanceOf[Double])
+      case Some(result) =>
 
-    var child_list: Array[DecisionTree] = Array()
-    distinct_vals.foreach {
 
-      value =>
+        val bestAttr = result._1
+        val bestValue = result._2
 
-        println(s"best attr: $bestAttr , value: $value, num dist: ${distinct_vals.length}")
-        val currentNode = Node(bestAttr, value, null, null, par)
-        child_list :+ currentNode
-        val new_dataset = dataset.filter(col(bestAttr) === value).drop(bestAttr).persist()
+        println(bestAttr,bestValue)
 
-        val row_idx = rowsAttrTable.lookup((bestAttr, value)).head
-        val new_attrTable = filterAttrTable(attrTable, row_idx, bestAttr).persist()
+        /*val rowsLeft = rowsSplit.get._1._1
+        val rowsRight = rowsSplit.get._1._2*/
 
-        val new_node = mainAlgorithm(new_dataset, new_attrTable, Option(currentNode), idx_label - 1, depthTree + 1)
-        currentNode.insertLeftChild(new_node)
+        val greaterDataset = dataset.filter {
+
+          row =>
+            val index = row.schema.fieldIndex(bestAttr)
+
+            row(index).asInstanceOf[Double] >= bestValue
+        }
+
+        val lowerDataset = dataset.filter {
+
+          row =>
+            val index = row.schema.fieldIndex(bestAttr)
+
+            row(index).asInstanceOf[Double] < bestValue
+        }
+
+
+        //val updateTablesGreater = filterAttrTable(attrTable, rowsRight)
+        //val updateTablesLower = filterAttrTable(attrTable, rowsLeft)
+
+        val currentNode = Node(bestValue, bestAttr, null, null, par)
+
+        println("iterate right and left...")
+
+        val right = mainAlgorithm(greaterDataset, cols , Option(currentNode), idx_label, depthTree+1)//updateTablesGreater, Option(currentNode), idx_label, depthTree+1)
+        val left = mainAlgorithm(lowerDataset, cols, Option(currentNode), idx_label, depthTree+1)//updateTablesLower, Option(currentNode), idx_label, depthTree+1)
+
+        currentNode.addLeft(left)
+        currentNode.addRight(right)
+
+        currentNode
+
+      case None =>
+        Leaf(par, maxClass.toInt)
     }
 
 
-    println(s"num partition dataset: ${dataset.rdd.getNumPartitions}")
-
-
-    null
   }
 
   private def calcEntropyTable(dataset: DataFrame): (Double, (String, Double), Double) = {
@@ -147,7 +174,10 @@ class MapReduceAlgorithm() {
     (entropy, maxKey, allValue)
   }
 
-  def dataPreparation(dataset: DataFrame, attrTable: RDD[((String, Int, Int, Double), Int)]): (RDD[((String, Double), Seq[Int])], RDD[(String, Seq[Double])], RDD[((String, Double), (Int, Int))]) = {
+  def dataPreparation(dataset: DataFrame,
+                      //attrTable: RDD[(String, (Int, Double, Set[Int]))])
+                      cols: Array[(String, Int)])
+  : RDD[((String, Double, Boolean), Int)] = {//Set[Int])] = {
 
     /*
     * Map of splitpoints (mean of adiacent values) for attributes, if attr have only one value we discard it
@@ -156,42 +186,61 @@ class MapReduceAlgorithm() {
 
     if (dataset.drop(Seq("ground_truth", "Index"): _*).distinct().head(2).length > 1) {
 
-      val rowsAttrTable = attrTable
-        .map { case ((attr, row_idx, _, value), _) => ((attr, value), row_idx) }
-        .combineByKey(
-          createCombiner = (value: Int) => Seq(value),
-          mergeValue = (accumulator: Seq[Int], value: Int) => accumulator :+ value,
-          mergeCombiners = (accumulator1: Seq[Int], accumulator2: Seq[Int]) => accumulator1 ++ accumulator2
-        )
-        .persist()
+      //println(s"attrtable partition: ${attrTable.partitions.length}")
 
-      val distinctTable = attrTable
-        .map { case ((attr, _, _, value), _) => (attr, value) }
-        .combineByKey(
-          createCombiner = (value: Double) => Seq(value),
-          mergeValue = (accumulator: Seq[Double], value: Double) => accumulator :+ value,
-          mergeCombiners = (accumulator1: Seq[Double], accumulator2: Seq[Double]) => accumulator1 ++ accumulator2
-        )
-        .mapValues(_.distinct)
-        .filter(_._2.length > 1)
-        .persist()
+      val idx_label = dataset.columns.length-1
 
-      distinctTable.foreach(println)
-
-      val keys = distinctTable.keys.collect()
-
-      val countTable = attrTable
-        .filter(item => keys.contains(item._1._1))
-        .map { case ((attr, _, label, value), count) => ((attr, label, value), count) }
+      val attrTable = dataset.rdd.flatMap {
+          row =>
+            cols.map {
+              case (col, idx) =>
+                ((col, row(idx_label).asInstanceOf[Int], row(idx + 1).asInstanceOf[Double]), 1)
+            }
+        }
         .reduceByKey(_ + _)
         .map {
 
           case ((attr, label, value), count) =>
-            ((attr, value), (label, count))
+
+            (attr, (label, value, count))
+        }
+        //.partitionBy(new HashPartitioner(6))
+        .persist()
+
+      val splitPointsTable = attrTable.mapValues(values => Seq(values._2))
+        .reduceByKey(_ ++ _)
+        .mapValues(_.distinct.sorted)
+        .filter(_._2.length > 1)
+        .mapValues(_.sliding(2).toList.map(pair => (pair.head + pair(1)) / 2.0))
+
+
+
+      // count table respect to (attr splitvalue, label)
+      val countTableSplit = attrTable
+        .rightOuterJoin(splitPointsTable)
+        .flatMap {
+
+          case (attr, (joined: Option[(Int, Double, Int)], val_list)) =>//(joined: Option[(Int, Double, Set[Int])], val_list)) =>
+
+            joined match {
+
+              case Some((label, value, count)) =>
+
+                val_list.map( //divide in < and >= instances taking in account class label for each splitpoint of this attr
+
+                  value1 => ((attr, label, value1, if (value < value1) false else true), count)
+                )
+            }
+        }
+        .reduceByKey(_ + _)
+        .map {
+
+          case ((attr, _, value, split), count) =>
+            ((attr, value, split), count)
         }
         .persist()
 
-      (rowsAttrTable, distinctTable, countTable)
+      countTableSplit
     }
     else
       null
@@ -199,30 +248,34 @@ class MapReduceAlgorithm() {
   }
 
 
-  private def findBestSplit(countTableValue: RDD[((String, Double), (Int, Int))], entropyAll : Double, allTable: Int): String = {
+  private def findBestSplit(countTableValue: RDD[((String, Double, Boolean), Int)],//Set[Int])],
+                            entropyAll: Double, allTable: Int) = {
+  //: (Option[(String, Double)], Option[((Set[Int], Set[Int]), Double)]) = {
 
     val log2: Double => Double = (x: Double) =>
       if (x.abs == 0.0) 0.0 else log10(x) / log10(2.0)
 
-    val roundDouble : Double => Double = (value: Double) =>
+    val roundDouble: Double => Double = (value: Double) =>
       BigDecimal(value).setScale(4, BigDecimal.RoundingMode.HALF_UP).toDouble
 
     val calcEntropy: Double => Double = (p: Double) => -p * log2(p) //roundDouble(-p * log2(p))
 
-    val allTableSplit = countTableValue.mapValues{case (_,count) => count}
-      .reduceByKey(_+_)
+    val allTableSplit = countTableValue.reduceByKey(_ + _) //.coalesce(2)
 
     //join between countTable for splitvalues and allTable for splitvalues
     val infoTable = countTableValue
       .join(allTableSplit)
 
+    println(s"infotable partitions: ${infoTable.partitions.length}")
     //gainratio table
-    val gainRatioTable = infoTable.mapValues {
-        case ((_, count), all) => (all, calcEntropy(count.toDouble / all.toDouble))
+    val gainRatioTable = infoTable
+      .mapValues {
+
+        case (count, all) => (all, calcEntropy(count.toDouble / all.toDouble))
       }
-      .reduceByKey { case ((all,entropyAttr1),(_,entropyAttr2)) => (all, entropyAttr1+entropyAttr2)}
-      .map{
-        case((attr,_),(allSplit,entropySplit)) =>
+      .reduceByKey { case ((all, entropyAttr1), (_, entropyAttr2)) => (all, entropyAttr1 + entropyAttr2) }
+      .map {
+        case ((attr, value, split), (allSplit, entropySplit)) =>
 
           // compute info and splitinfo for each (attr, splitvalue)
           val p = allSplit.toDouble / allTable.toDouble
@@ -230,20 +283,31 @@ class MapReduceAlgorithm() {
           val splitinfo = calcEntropy(p)
 
 
-          (attr, (info,splitinfo))
+          ((attr, value), ((allSplit,0),info, splitinfo))//((allSplit, Set[Int](), split), info, splitinfo))
 
       }
-      .reduceByKey{ case((info1, splitinfo1), (info2, splitinfo2)) => (info1+info2, splitinfo1+splitinfo2)}
-      .mapValues { case (info,split) =>
+      .reduceByKey {
+        case ((/*(allSplit1, _, split),*/ (allSplit1,_),info1, splitinfo1), (/*(allSplit2, _, _),*/(allSplit2,_), info2, splitinfo2)) =>
 
-        (entropyAll-info)/split //gain / split
+          /*( if (!split) (allSplit1, allSplit2, split) else (allSplit2, allSplit1, split),*/
+          ((allSplit1,allSplit2),info1 + info2, splitinfo1 + splitinfo2)
+      }
+      //.filter(x => x._2._1._1.size > 100 && x._2._1._2.size > 100)
+      .filter(x => x._2._1._1 > 100 && x._2._1._2 > 100)
+      .mapValues { case (/*(all1, all2, _)*/(all1, all2), info, split) =>
+
+        ((all1, all2), (entropyAll - info) / split) // it's gain / splitinfo
       }
 
     println("gainRatioTable")
 
-    val argmax = gainRatioTable.reduce((x1, x2) => if (x1._2 > x2._2) x1 else x2)._1
+    //var argmax: (Option[(String, Double)], Option[((Set[Int], Set[Int]), Double)]) = (None, None)
+    var argmax: Option[(String,Double)] = None
 
-    println(argmax)
+    if (gainRatioTable.take(1).nonEmpty) {
+      val result = gainRatioTable.reduce((x1, x2) => if (x1._2._2 > x2._2._2) x1 else x2)._1
+      argmax = Some(result._1, result._2)//(Some(result._1), Some(result._2))
+    }
 
     argmax
 

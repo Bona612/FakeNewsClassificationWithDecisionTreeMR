@@ -1,15 +1,14 @@
-package decisiontreealg
+package decisiontree
 
+import decisiontreealg.MapReduceAlgorithm
 import org.apache.spark.ml.Estimator
-import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.param.{Param, ParamMap}
 import org.apache.spark.ml.util.{DefaultParamsWritable, Identifiable}
 import org.apache.spark.sql.Dataset
 import org.apache.spark.sql.types.StructType
-import decisiontreealg.DecisionTreeModel
-import decisiontreealg.MapReduceAlgorithm
 
-class DecisionTreeClassifier(override val uid: String) extends Estimator[DecisionTreeModel]
+
+class DecisionTreeClassifier(override val uid: String) extends Estimator[NewDecisionTreeModel]
   with DefaultParamsWritable {
 
   def this() = this(Identifiable.randomUID("decisionTree"))
@@ -28,18 +27,17 @@ class DecisionTreeClassifier(override val uid: String) extends Estimator[Decisio
   }
 
   // Implement the fit method to train your decision tree model
-  override def fit(dataset: Dataset[_]): DecisionTreeModel = {
+  override def fit(dataset: Dataset[_]): NewDecisionTreeModel = {
     // Your training logic here
     // For simplicity, let's assume you have a feature column called "features" and a label column called "label"
 
-    //val alg3: MapReduceAlgorithm3 = new MapReduceAlgorithm3()
-    val alg: MapReduceAlgorithm_vDF = new MapReduceAlgorithm_vDF()
+    val alg3: MapReduceAlgorithm = new MapReduceAlgorithm()
+    //val alg: MapReduceAlgorithm_vDF = new MapReduceAlgorithm_vDF()
 
     val startTimeMillis = System.currentTimeMillis()
 
-    // Elapsed Time: 32768 milliseconds
-    //val decTree = alg3.startAlgorithm(dataset.toDF, $(maxDepth))
-    val decTree: DecisionTree = alg.startAlgorithm_vDF(dataset.toDF, $(maxDepth))
+    val decTree = alg3.startAlgorithm(dataset.toDF, $(maxDepth))
+    //val decTree: DecisionTree = alg.startAlgorithm_vDF(dataset.toDF, $(maxDepth))
 
     // Record the end time
     val endTimeMillis = System.currentTimeMillis()
@@ -50,8 +48,9 @@ class DecisionTreeClassifier(override val uid: String) extends Estimator[Decisio
     println(s"Elapsed Time: $elapsedTimeMillis milliseconds")
 
 
+
     // For now, let's create a dummy model
-    val model = new DecisionTreeModel(uid).setDecisionTree(decTree)
+    val model = new NewDecisionTreeModel(uid).setDecisionTree(new NewDecisionTree(decTree))
 
     // Return the trained model
     model
