@@ -10,15 +10,15 @@ import org.apache.spark.sql.{DataFrame, Dataset, Row}
 
 import java.io.{FileInputStream, FileOutputStream, ObjectInputStream, ObjectOutputStream}
 
-class NewDecisionTreeModel(override val uid: String) extends Model[NewDecisionTreeModel]
+class DecisionTreeModel(override val uid: String) extends Model[DecisionTreeModel]
   with DefaultParamsWritable {
 
   // Define parameters for your decision tree, e.g., depth, impurity, etc.
-  val decisionTree: Param[NewDecisionTree] = new Param[NewDecisionTree](this, "decisionTree", "Decision tree")
+  val decisionTree: Param[DecisionTree] = new Param[DecisionTree](this, "decisionTree", "Decision tree")
 
-  def getDecisionTree: NewDecisionTree = $(decisionTree)
+  def getDecisionTree: DecisionTree = $(decisionTree)
 
-  def setDecisionTree(value: NewDecisionTree): this.type = set(decisionTree, value)
+  def setDecisionTree(value: DecisionTree): this.type = set(decisionTree, value)
 
   def this() = this(Identifiable.randomUID("decisionTreeModel"))
 
@@ -59,7 +59,7 @@ class NewDecisionTreeModel(override val uid: String) extends Model[NewDecisionTr
     StructType(schema :+ StructField("Prediction", ArrayType(IntegerType)))
   }
 
-  override def copy(extra: ParamMap): NewDecisionTreeModel = defaultCopy(extra)
+  override def copy(extra: ParamMap): DecisionTreeModel = defaultCopy(extra)
 }
 
 
@@ -81,7 +81,7 @@ case class Leaf(parent: Option[TreeNode], label: Int) extends TreeNode {
   def getParent: Option[TreeNode] = parent
 
 }
-class NewDecisionTree(tree: TreeNode) extends Serializable {
+class DecisionTree(tree: TreeNode) extends Serializable {
 
   def printAllNodes(decisionTree: TreeNode): Unit = {
 
@@ -111,10 +111,10 @@ class NewDecisionTree(tree: TreeNode) extends Serializable {
     fileOutputStream.close()
   }
 
-  def loadFromFile(filePath: String): NewDecisionTree = {
+  def loadFromFile(filePath: String): DecisionTree = {
     val fileInputStream = new FileInputStream(filePath)
     val objectInputStream = new ObjectInputStream(fileInputStream)
-    val loadedTree = objectInputStream.readObject().asInstanceOf[NewDecisionTree]
+    val loadedTree = objectInputStream.readObject().asInstanceOf[DecisionTree]
     objectInputStream.close()
     fileInputStream.close()
     loadedTree

@@ -23,7 +23,7 @@ import utils.GCSUtils
 
 import scala.util.Try
 //import org.apache.spark.sql.functions.{col, lit, rand, row_number}
-import decisiontree.{Leaf, NewDecisionTree, Node}
+import decisiontree.{Leaf, DecisionTree, Node}
 import org.apache.spark.sql.functions._
 import org.apache.hadoop.fs.{FileSystem, Path}
 import scala.math.Fractional.Implicits.infixFractionalOps

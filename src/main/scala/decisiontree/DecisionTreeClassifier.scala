@@ -4,11 +4,12 @@ import decisiontreealg.MapReduceAlgorithm
 import org.apache.spark.ml.Estimator
 import org.apache.spark.ml.param.{Param, ParamMap}
 import org.apache.spark.ml.util.{DefaultParamsWritable, Identifiable}
+
 import org.apache.spark.sql.Dataset
 import org.apache.spark.sql.types.StructType
 
 
-class DecisionTreeClassifier(override val uid: String) extends Estimator[NewDecisionTreeModel]
+class DecisionTreeClassifier(override val uid: String) extends Estimator[DecisionTreeModel]
   with DefaultParamsWritable {
 
   def this() = this(Identifiable.randomUID("decisionTree"))
@@ -27,7 +28,7 @@ class DecisionTreeClassifier(override val uid: String) extends Estimator[NewDeci
   }
 
   // Implement the fit method to train your decision tree model
-  override def fit(dataset: Dataset[_]): NewDecisionTreeModel = {
+  override def fit(dataset: Dataset[_]): DecisionTreeModel = {
     // Your training logic here
     // For simplicity, let's assume you have a feature column called "features" and a label column called "label"
 
@@ -50,7 +51,7 @@ class DecisionTreeClassifier(override val uid: String) extends Estimator[NewDeci
 
 
     // For now, let's create a dummy model
-    val model = new NewDecisionTreeModel(uid).setDecisionTree(new NewDecisionTree(decTree))
+    val model = new DecisionTreeModel(uid).setDecisionTree(new DecisionTree(decTree))
 
     // Return the trained model
     model
