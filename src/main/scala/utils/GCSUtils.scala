@@ -1,7 +1,6 @@
 package utils
 
-import java.io.InputStream
-import java.io.OutputStream
+import java.io.{BufferedOutputStream, ByteArrayInputStream, File, FileInputStream, FileOutputStream, InputStream, OutputStream, OutputStreamWriter}
 import java.nio.file.{Files, Path, Paths}
 import java.net.URI
 import com.google.cloud.storage.{Blob, BlobId, BlobInfo, Storage, StorageOptions}
@@ -9,11 +8,7 @@ import org.apache.hadoop.fs.FileSystem
 import org.apache.spark
 import org.apache.spark.sql.SparkSession
 
-import java.io.ByteArrayInputStream
 import java.nio.channels.Channels
-import java.io.FileInputStream
-import java.io.File
-import java.io.FileOutputStream
 import scala.language.postfixOps
 import scala.sys.process._
 
@@ -85,6 +80,30 @@ object GCSUtils {
     }
   }
 
+
+  def saveJson(gcsPath: String, jsonString: String, spark: SparkSession) = {
+
+
+    try {
+
+      // Get the FileSystem for GCS
+      val fs = FileSystem.get(new java.net.URI(gcsPath), spark.sparkContext.hadoopConfiguration)
+
+      // Write data to the file
+      val outputPath = new org.apache.hadoop.fs.Path(gcsPath)
+      val os = fs.create(outputPath)
+      val writer = new OutputStreamWriter(new BufferedOutputStream(os))
+      writer.write(jsonString)
+      writer.close()
+
+    } catch {
+      case e: Exception =>
+        println(s"Error: ${e.getMessage}")
+        e.printStackTrace()
+    }
+    // Use Hadoop FileSystem to write the JSON string to GCS
+
+  }
 
   def saveFile(outputPathGCS: String, stringFilePath: String): BlobInfo = {
     // ANCHE QUI NON RICORDO BENE COSA AVESSI FATTO, DARE UN OCCHIO SU CHAT-GPT
