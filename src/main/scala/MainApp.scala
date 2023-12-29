@@ -12,7 +12,7 @@ import scala.language.postfixOps
 import scala.sys.process._
 import decisiontree.DecisionTreeClassifier
 import decisiontree.Node
-import org.apache.spark.{SparkFiles, ml}
+import org.apache.spark.{Partitioner, SparkFiles, ml}
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.{Pipeline, PipelineModel}
 import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel, IDF, VectorAssembler, VectorSlicer}
@@ -39,7 +39,7 @@ object MainApp {
   def main(args: Array[String]): Unit = {
 
     // set true if you want to test in local
-    val testLocal = false
+    val testLocal = true
 
     /*
     * vars set in local mode
@@ -58,15 +58,13 @@ object MainApp {
     if (testLocal) {
 
       spark = SparkSession.builder()
-        .master("local[*]")
+        .master("local[1]")
         .appName("Fake News Classification")
         .config("spark.sql.autoBroadcastJoinThreshold", "-1")
         .config("spark.sql.adaptive.enabled","true")
-        .config("spark.sql.shuffle.partitions","12")
-        .config("spark.default.parallelism","12")
+        .config("spark.sql.shuffle.partitions","1")
+        .config("spark.default.parallelism","1")
         .getOrCreate()
-
-
 
       /* LOCAL TEST */
 
@@ -359,6 +357,8 @@ object MainApp {
     }
 
 
+    dataset = dataset.repartition()//.cache()
+
     println("DATASET COUNT", dataset.count())
 
 
@@ -369,6 +369,7 @@ object MainApp {
 
     if (testLocal) {
 
+
       dataset = spark.read
         .option("header", "true")
         .option("quote", "\"") // Quote character
@@ -376,8 +377,7 @@ object MainApp {
         .option("multiLine", "true")
         .option("sep", ",")
         .option("charset", "UTF-8")
-        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final500.csv")
-
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final100.csv")
 
       var schema: Seq[StructField] = Seq()
       dataset.columns.foreach {
@@ -396,7 +396,7 @@ object MainApp {
         .option("sep", ",")
         .option("charset", "UTF-8")
         .schema(StructType(schema))
-        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final500.csv")
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final100.csv")
 
 
       /* TRAINSET IN TEST MODE - è uguale al dataset (nessuno split) */
@@ -414,9 +414,7 @@ object MainApp {
         dataset = dataset.select(lastColumns.map(col): _*)
       }
 
-
-      /*
-      val dfWithConsecutiveIndex = dataset.withColumn("Index", row_number().over(Window.orderBy(monotonically_increasing_id())))
+      /*val dfWithConsecutiveIndex = dataset.withColumn("Index", row_number().over(Window.orderBy(monotonically_increasing_id())))
       val orderedColumns : Array[String] = "Index" +: dataset.columns.map(col => col)
       dataset = dfWithConsecutiveIndex.select(orderedColumns.map(col): _*)
 
@@ -428,9 +426,11 @@ object MainApp {
         .option("multiLine", "true")
         .option("delimiter", ",")
         .option("charset", "UTF-8")
-        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final500.csv")*/
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final250.csv")*/
 
     }
+
+    val partitions = spark.sparkContext.getConf.get("spark.sql.shuffle.partitions").toInt
 
 
     // Dividi il DataFrame in due parti: una con label 0 e una con label 1
@@ -445,21 +445,27 @@ object MainApp {
     val trainLabel0 = dfLabel0.sample(withReplacement = false, minCount * 0.8 / label0_count)
     val trainLabel1 = dfLabel1.sample(withReplacement = false, minCount * 0.8 / label1_count)
 
-
-    val partitions = Try(args(5).toInt).getOrElse(12)
     // Unisci i due campioni per ottenere il set di addestramento bilanciato
-    trainSet = trainLabel0.unionAll(trainLabel1).repartition(partitions).cache()
+    trainSet = trainLabel0.union(trainLabel1)
 
-    println(trainSet.count())
+    val pairTrain = trainSet.rdd.zipWithIndex.map(pair => (pair._2, pair._1))
+
+    trainSet = spark.createDataFrame(pairTrain.partitionBy(new CustomPartitioner(partitions)).map(_._2), dataset.schema)//.cache()
 
     // Rimuovi le righe utilizzate per l'addestramento dal DataFrame originale
     testSet = dataset.exceptAll(trainSet)
 
+    val pairTest = testSet.rdd.zipWithIndex.map(pair => (pair._2, pair._1))
 
+    testSet = spark.createDataFrame(pairTest.partitionBy(new CustomPartitioner(partitions)).map(_._2), dataset.schema)//.cache()
+
+    //dataset.unpersist()
     // DA PROVARE
     val decisionTreeMaxDepth = 100
+
     val customDecisionTree = new DecisionTreeClassifier()
       .setMaxDepth(decisionTreeMaxDepth)
+
 
     /*val executorCores = spark.sparkContext.getConf.get("spark.executor.cores").toInt
     val executorInstances = spark.sparkContext.getConf.get("spark.executor.instances").toInt
@@ -467,8 +473,6 @@ object MainApp {
     // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
     val startTimeMillis = System.currentTimeMillis()
 
-
-    println("NUM PARTITIONS: " + trainSet.rdd.partitions.length.toString)
     val decTree = customDecisionTree.fit(trainSet)
 
     // Record the end time
@@ -482,36 +486,36 @@ object MainApp {
     decTree.getDecisionTree.printAllNodes(decTree.getDecisionTree.getTreeNode)
     decTree.getDecisionTree.saveToFile("./tree.ser")
 
-    if (testSet != null) {
-      val predictedLabels = decTree.transform(testSet)
+    val predictedLabels = decTree.transform(testSet)
 
-      val predictionsWithDoubleLabels = predictedLabels.withColumn("ground_truth", col("ground_truth").cast("Double")).withColumn("Prediction", col("Prediction").cast("Double"))
-      val evaluatorAccuracy = new BinaryClassificationEvaluator()
-        .setLabelCol("ground_truth")
-        .setRawPredictionCol("Prediction")
-        .setMetricName("areaUnderROC")
-      val accuracy = evaluatorAccuracy.evaluate(predictionsWithDoubleLabels)
+    val predictionsWithDoubleLabels = predictedLabels.withColumn("ground_truth", col("ground_truth").cast("Double")).withColumn("Prediction", col("Prediction").cast("Double"))
+    val evaluatorAccuracy = new BinaryClassificationEvaluator()
+      .setLabelCol("ground_truth")
+      .setRawPredictionCol("Prediction")
+      .setMetricName("areaUnderROC")
+    val accuracy = evaluatorAccuracy.evaluate(predictionsWithDoubleLabels)
 
-      val evaluatorPrecision = new BinaryClassificationEvaluator()
-        .setLabelCol("ground_truth")
-        .setRawPredictionCol("Prediction")
-        .setMetricName("areaUnderPR")
-      val precision = evaluatorPrecision.evaluate(predictionsWithDoubleLabels)
+    val evaluatorPrecision = new BinaryClassificationEvaluator()
+      .setLabelCol("ground_truth")
+      .setRawPredictionCol("Prediction")
+      .setMetricName("areaUnderPR")
+    val precision = evaluatorPrecision.evaluate(predictionsWithDoubleLabels)
 
 
-      val obj: ujson.Value = ujson.Obj(
-        "Accuracy" -> accuracy,
-        "Precision" -> precision,
-        "Execution Time" -> elapsedTime,
-        "Train Set" -> ujson.Obj("num false" -> label0_count, "num true" -> label1_count),
-        "Test Set" -> testSet.count()
-      )
-      val jsonString: String = upickle.default.write(obj)
-      println(jsonString)
+    val (count0, count1) = customDecisionTree.getCountLabel
 
-      //GCSUtils.saveJson(s"gs://fnc_bucket_final/data/${args(4)}.json", jsonString, spark)
+    val obj: ujson.Value = ujson.Obj(
+      "Accuracy" -> accuracy,
+      "Precision" -> precision,
+      "Execution Time" -> elapsedTime,
+      "Train Set" -> ujson.Obj("num false" -> count0, "num true" -> count1),
+      "Test Set" -> testSet.count()
+    )
+    val jsonString: String = upickle.default.write(obj)
+    println(jsonString)
 
-    }
+    if(!testLocal)
+      GCSUtils.saveJson(s"gs://fnc_bucket_final/data/${args(4)}.json", jsonString, spark)
 
     if(testLocal) {
       var userInput = ""
@@ -522,12 +526,22 @@ object MainApp {
       }
     }
 
-
     println("Stopping Spark")
     // Stop the Spark session
     spark.stop()
     println("Stop")
  }
+
+  class CustomPartitioner(num: Int) extends Partitioner {
+    override def numPartitions: Int = {
+      num
+    }
+
+    override def getPartition(key: Any): Int = {
+      key.toString.toInt % num
+    }
+
+  }
 
  def calculateMetrics(trueLabels: Array[Int], predictedLabels: Array[Int]): (Int, Int, Int) = {
    if (trueLabels.length != predictedLabels.length) {
