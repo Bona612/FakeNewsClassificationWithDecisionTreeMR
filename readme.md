@@ -4,8 +4,6 @@ FakeNews classification implementation with decision tree and map reduce.
 
 ## Getting Started
 
-See deployment for notes on how to deploy the project on a live system.
-
 ### Prerequisites
 
 - Google Cloud Account
@@ -28,8 +26,8 @@ See deployment for notes on how to deploy the project on a live system.
 ## Authors
 
 * **Matteo Boccali** - [Bona612](https://github.com/Bona612)
-* **Luca Cotugno** [lucacotu](https://github.com/lucacotu)
-* **Andrea Mancini** [Mancio98](https://github.com/Mancio98)
+* **Luca Cotugno** - [lucacotu](https://github.com/lucacotu)
+* **Andrea Mancini** - [Mancio98](https://github.com/Mancio98)
 
 ## License
 
