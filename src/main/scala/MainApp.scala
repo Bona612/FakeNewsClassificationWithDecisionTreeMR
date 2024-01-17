@@ -1,34 +1,20 @@
-import com.johnsnowlabs.nlp.DocumentAssembler
-import com.johnsnowlabs.nlp.annotator.{Stemmer, StopWordsCleaner, Tokenizer}
-import com.johnsnowlabs.nlp.Finisher
-
-import java.io.File
-import org.apache.hadoop.conf.Configuration
-import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
+import com.johnsnowlabs.nlp.{DocumentAssembler, Finisher}
+import com.johnsnowlabs.nlp.annotator.{Stemmer, Tokenizer}
 import dataacquisition.{DataAcquisition, TextCleaner, VectorExpander}
-
-import java.nio.file.{Files, Path, Paths}
-import scala.language.postfixOps
-import scala.sys.process._
 import decisiontree.DecisionTreeClassifier
-import decisiontree.Node
-import org.apache.spark.{Partitioner, SparkFiles, ml}
+import org.apache.spark.Partitioner
+import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
-import org.apache.spark.ml.{Pipeline, PipelineModel}
-import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel, IDF, VectorAssembler, VectorSlicer}
-import org.apache.spark.sql.catalyst.dsl.expressions.{DslAttr, StringToAttributeConversionHelper}
-import org.apache.spark.sql.expressions.Window
-import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType, StructField, StructType}
-import ujson.Obj
-import utils.GCSUtils
+import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel, IDF, VectorSlicer}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import upickle.default._
+import utils.GCSUtils
 
+import scala.language.postfixOps
 import scala.util.Try
 //import org.apache.spark.sql.functions.{col, lit, rand, row_number}
-import decisiontree.{Leaf, DecisionTree, Node}
 import org.apache.spark.sql.functions._
-import org.apache.hadoop.fs.{FileSystem, Path}
-import scala.math.Fractional.Implicits.infixFractionalOps
 
 object MainApp {
 
@@ -45,6 +31,7 @@ object MainApp {
     * vars set in local mode
     * in cluster mode they will be set at beginning of else
     */
+
     var dataset: DataFrame = null
 
     var inputPath = ""
@@ -52,13 +39,13 @@ object MainApp {
     var defaultMaxVocabSize = 500
     var maxVocabSizeCV = 0
 
-    var num_cols = 0  // 0 is default, > 0 change number of cols to take
-    var num_rows = 0
+    val num_cols = 50  // 0 is default, > 0 change number of cols to take
+    val num_rows = 10000
 
     if (testLocal) {
 
       spark = SparkSession.builder()
-        .master("local[1]")
+        .master("local[*]")
         .appName("Fake News Classification")
         .config("spark.sql.autoBroadcastJoinThreshold", "-1")
         .config("spark.sql.adaptive.enabled","true")
@@ -261,7 +248,7 @@ object MainApp {
 
 
       inputPath = args(0)
-      outputPath = args(1)
+      outputPath = inputPath
       defaultMaxVocabSize = 500
       maxVocabSizeCV = Try(args(2).toInt).getOrElse(defaultMaxVocabSize)
 
@@ -296,7 +283,7 @@ object MainApp {
       println("Start")
       val downloadPath: String = "data/download"
       val datasetPath = "data/dataset"
-      val csv = args(3)
+      val csv = args(1)
 
       // Creating a list of strings
       // "jruvika/fake-news-detection",
@@ -357,18 +344,15 @@ object MainApp {
     }
 
 
-    dataset = dataset.repartition()//.cache()
+    dataset = dataset.repartition().cache()
 
     println("DATASET COUNT", dataset.count())
-
 
     var lastColumns: Array[String] = null
     var trainSet: DataFrame = null
     var testSet: DataFrame = null
 
-
     if (testLocal) {
-
 
       dataset = spark.read
         .option("header", "true")
@@ -377,7 +361,7 @@ object MainApp {
         .option("multiLine", "true")
         .option("sep", ",")
         .option("charset", "UTF-8")
-        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final100.csv")
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final250.csv")
 
       var schema: Seq[StructField] = Seq()
       dataset.columns.foreach {
@@ -396,11 +380,10 @@ object MainApp {
         .option("sep", ",")
         .option("charset", "UTF-8")
         .schema(StructType(schema))
-        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final100.csv")
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final250.csv")
 
 
-      /* TRAINSET IN TEST MODE - è uguale al dataset (nessuno split) */
-
+      /* TRAINSET IN TEST MODE  */
 
       if( num_rows > 0) {
 
@@ -414,9 +397,11 @@ object MainApp {
         dataset = dataset.select(lastColumns.map(col): _*)
       }
 
-      /*val dfWithConsecutiveIndex = dataset.withColumn("Index", row_number().over(Window.orderBy(monotonically_increasing_id())))
+      /*
+      val dfWithConsecutiveIndex = dataset.withColumn("Index", row_number().over(Window.orderBy(monotonically_increasing_id())))
       val orderedColumns : Array[String] = "Index" +: dataset.columns.map(col => col)
       dataset = dfWithConsecutiveIndex.select(orderedColumns.map(col): _*)
+
 
       dataset.write //.format("com.databricks.spark.csv")
         .mode("overwrite")
@@ -426,21 +411,21 @@ object MainApp {
         .option("multiLine", "true")
         .option("delimiter", ",")
         .option("charset", "UTF-8")
-        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final250.csv")*/
-
+        .csv("/Users/andreamancini/IdeaProjects/FakeNewsClassificationWithDecisionTreeMR/dataset_final50.csv")
+      */
     }
+
 
     val partitions = spark.sparkContext.getConf.get("spark.sql.shuffle.partitions").toInt
 
-
-    // Dividi il DataFrame in due parti: una con label 0 e una con label 1
-    val dfLabel0 = dataset.filter(col("ground_truth") === 0)
-    val dfLabel1 = dataset.filter(col("ground_truth") === 1)
+    val  dfLabel0 = dataset.filter(col("ground_truth") === 0)
+    val  dfLabel1 = dataset.filter(col("ground_truth") === 1)
 
     val label0_count = dfLabel0.count().toDouble
     val label1_count = dfLabel1.count().toDouble
 
     val minCount = label0_count.min(label1_count)
+
     // Prendi un campione bilanciato per ciascuna label
     val trainLabel0 = dfLabel0.sample(withReplacement = false, minCount * 0.8 / label0_count)
     val trainLabel1 = dfLabel1.sample(withReplacement = false, minCount * 0.8 / label1_count)
@@ -450,37 +435,34 @@ object MainApp {
 
     val pairTrain = trainSet.rdd.zipWithIndex.map(pair => (pair._2, pair._1))
 
-    trainSet = spark.createDataFrame(pairTrain.partitionBy(new CustomPartitioner(partitions)).map(_._2), dataset.schema)//.cache()
+    trainSet = spark.createDataFrame(pairTrain.partitionBy(new CustomPartitioner(partitions)).map(_._2), dataset.schema).cache()
 
     // Rimuovi le righe utilizzate per l'addestramento dal DataFrame originale
     testSet = dataset.exceptAll(trainSet)
 
     val pairTest = testSet.rdd.zipWithIndex.map(pair => (pair._2, pair._1))
 
-    testSet = spark.createDataFrame(pairTest.partitionBy(new CustomPartitioner(partitions)).map(_._2), dataset.schema)//.cache()
+    testSet = spark.createDataFrame(pairTest.partitionBy(new CustomPartitioner(partitions)).map(_._2), dataset.schema).cache()
 
-    //dataset.unpersist()
-    // DA PROVARE
+    dataset.unpersist()
+
     val decisionTreeMaxDepth = 100
 
     val customDecisionTree = new DecisionTreeClassifier()
       .setMaxDepth(decisionTreeMaxDepth)
 
 
-    /*val executorCores = spark.sparkContext.getConf.get("spark.executor.cores").toInt
-    val executorInstances = spark.sparkContext.getConf.get("spark.executor.instances").toInt
-    val partition = (executorCores * executorInstances)*2*/
-    // Assuming you have a DataFrame called "trainingData" with columns "feature1", "feature2", and "label"
     val startTimeMillis = System.currentTimeMillis()
 
+    // train fit
     val decTree = customDecisionTree.fit(trainSet)
 
-    // Record the end time
+
     val endTimeMillis = System.currentTimeMillis()
 
-    // Calculate the elapsed time
+
     val elapsedTime = endTimeMillis - startTimeMillis
-    // Print the result
+
     println(s"Elapsed Time: $elapsedTime milliseconds")
 
     decTree.getDecisionTree.printAllNodes(decTree.getDecisionTree.getTreeNode)
@@ -515,12 +497,11 @@ object MainApp {
     println(jsonString)
 
     if(!testLocal)
-      GCSUtils.saveJson(s"gs://fnc_bucket_final/data/${args(4)}.json", jsonString, spark)
+      GCSUtils.saveJson(s"gs://fnc_bucket_final/data/${args(3)}.json", jsonString, spark)
 
     if(testLocal) {
       var userInput = ""
 
-      // Keep waiting for input until the user enters "exit"
       while (userInput.toLowerCase != "exit") {
         userInput = scala.io.StdIn.readLine()
       }
@@ -542,28 +523,5 @@ object MainApp {
     }
 
   }
-
- def calculateMetrics(trueLabels: Array[Int], predictedLabels: Array[Int]): (Int, Int, Int) = {
-   if (trueLabels.length != predictedLabels.length) {
-     throw new IllegalArgumentException("Input arrays must have the same length.")
-   }
-
-   var truePositives = 0
-   var falsePositives = 0
-   var falseNegatives = 0
-
-   for ((trueLabel, predictedLabel) <- trueLabels zip predictedLabels) {
-     if (trueLabel == 1 && predictedLabel == 1) {
-       truePositives += 1
-     } else if (trueLabel == 0 && predictedLabel == 1) {
-       falsePositives += 1
-     } else if (trueLabel == 1 && predictedLabel == 0) {
-       falseNegatives += 1
-     }
-   }
-
-   (truePositives, falsePositives, falseNegatives)
- }
-
 
 }

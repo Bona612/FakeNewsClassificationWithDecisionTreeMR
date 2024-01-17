@@ -1,8 +1,6 @@
 package decisiontreealg
 
 import decisiontree.{Leaf, Node, TreeNode}
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, Row}
 
 import scala.math.log10

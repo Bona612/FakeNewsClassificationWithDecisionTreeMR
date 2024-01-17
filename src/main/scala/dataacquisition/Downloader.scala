@@ -2,13 +2,10 @@ package dataacquisition
 
 import org.apache.spark.sql.SparkSession
 
-import scala.language.postfixOps
-import scala.sys.process._
-import dataacquisition.Unzipper
-
-import java.io.File
 import java.nio.file.{Files, Path, Paths}
 import java.security.CodeSource
+import scala.language.postfixOps
+import scala.sys.process._
 
 class Downloader(val kaggleDataset: String, val csvPerDataset: Map[String, String], val downloadPath: String, val spark: SparkSession) {
 

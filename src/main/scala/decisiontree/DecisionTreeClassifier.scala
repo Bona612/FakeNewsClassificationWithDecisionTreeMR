@@ -1,6 +1,6 @@
 package decisiontree
 
-import decisiontreealg.{MapReduceAlgorithm, SequentialAlgorithm}
+import decisiontreealg.MapReduceAlgorithm
 import org.apache.spark.ml.Estimator
 import org.apache.spark.ml.param.{Param, ParamMap}
 import org.apache.spark.ml.util.{DefaultParamsWritable, Identifiable}
@@ -23,29 +23,24 @@ class DecisionTreeClassifier(override val uid: String) extends Estimator[Decisio
 
   val countLabels: Param[(Double, Double)] = new Param[(Double, Double)](this, "countLabels", "count for each label in train set")
 
-  def setCountLabel(value: (Double, Double)): this.type = set(countLabels, value)
-
   def getCountLabel: (Double, Double) = $(countLabels)
-  // Override transformSchema to specify the input and output schema of your decision tree model
   override def transformSchema(schema: StructType): StructType = {
-    // Your implementation here
+
     schema
   }
 
-  // Implement the fit method to train your decision tree model
-  override def fit(dataset: Dataset[_]): DecisionTreeModel = {
-    // Your training logic here
-    // For simplicity, let's assume you have a feature column called "features" and a label column called "label"
 
-    // val alg3: MapReduceAlgorithm = new MapReduceAlgorithm()
-    val alg: SequentialAlgorithm = new SequentialAlgorithm()
+  override def fit(dataset: Dataset[_]): DecisionTreeModel = {
+
+
+    val alg3: MapReduceAlgorithm = new MapReduceAlgorithm()
+
     val countLabel0 = dataset.filter(col("ground_truth") === 0).count().toDouble
     val countLabel1 = dataset.filter(col("ground_truth") === 1).count().toDouble
 
     set(countLabels, (countLabel0, countLabel1))
-    //val decTree = alg3.startAlgorithm(dataset.toDF, $(maxDepth), countLabel0, countLabel1)
-    val decTree = alg.startAlgorithm(dataset.toDF, $(maxDepth), $(countLabels)._1, $(countLabels)._2)
-    // For now, let's create a dummy model
+    val decTree = alg3.startAlgorithm(dataset.toDF, $(maxDepth), countLabel0, countLabel1)
+
     val model = new DecisionTreeModel(uid).setDecisionTree(new DecisionTree(decTree))
 
     // Return the trained model

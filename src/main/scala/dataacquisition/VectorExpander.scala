@@ -1,12 +1,12 @@
 package dataacquisition
 
-import org.apache.spark.ml.util.Identifiable
-import org.apache.spark.ml.param.{Param, ParamMap}
 import org.apache.spark.ml.Transformer
-import org.apache.spark.sql.{DataFrame, Dataset}
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.ml.param.{Param, ParamMap}
+import org.apache.spark.ml.util.Identifiable
 import org.apache.spark.sql.functions.{col, udf}
-import org.apache.spark.ml.linalg.{SparseVector, Vector}
-import org.apache.spark.sql.types.{ArrayType, DoubleType, IntegerType, StructField, StructType}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, Dataset}
 
 class VectorExpander(override val uid: String) extends Transformer {
 
