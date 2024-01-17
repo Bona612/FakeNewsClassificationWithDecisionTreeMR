@@ -1,28 +1,18 @@
 package dataacquisition
 
+import com.johnsnowlabs.nlp.annotator.{Stemmer, StopWordsCleaner, Tokenizer}
 import com.johnsnowlabs.nlp.{DocumentAssembler, Finisher}
-import org.apache.spark.sql.{Column, DataFrame, Encoders, Row, SparkSession}
-import org.apache.spark.sql.functions._
-import org.apache.spark.sql.functions.{col, expr}
-import org.apache.spark.sql.types.{DoubleType, FloatType, IntegerType, StringType, StructField, StructType}
-
-import java.nio.file.{Files, Paths}
-import scala.collection.mutable.ListBuffer
-import org.apache.spark.ml.Pipeline
-import org.apache.spark.ml.feature.{CountVectorizerModel, StopWordsRemover}
-import com.johnsnowlabs.nlp.annotator.{LemmatizerModel, Stemmer, StopWordsCleaner, Tokenizer}
 import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.spark.ml.linalg.{SQLDataTypes, Vectors}
-import org.apache.spark.sql.catalyst.dsl.expressions.StringToAttributeConversionHelper
-import utils.GCSUtils
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.feature.CountVectorizerModel
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import utils.GCSUtils.isFilePresent
+
+import scala.collection.mutable.ListBuffer
 //import com.johnsnowlabs.nlp.annotators.EnglishStemmer
-import org.apache.spark.sql.catalyst.ScalaReflection.universe.typeOf
-import org.apache.spark.ml.feature.Word2Vec
-import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.ml.feature.{CountVectorizer, IDF}
 
-import java.io.File
 import java.security.CodeSource
 import scala.sys.process._
 

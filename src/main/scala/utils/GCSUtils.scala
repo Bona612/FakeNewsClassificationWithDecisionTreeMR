@@ -1,14 +1,11 @@
 package utils
 
-import java.io.{BufferedOutputStream, ByteArrayInputStream, File, FileInputStream, FileOutputStream, InputStream, OutputStream, OutputStreamWriter}
-import java.nio.file.{Files, Path, Paths}
-import java.net.URI
-import com.google.cloud.storage.{Blob, BlobId, BlobInfo, Storage, StorageOptions}
+import com.google.cloud.storage._
 import org.apache.hadoop.fs.FileSystem
-import org.apache.spark
 import org.apache.spark.sql.SparkSession
 
-import java.nio.channels.Channels
+import java.io.{BufferedOutputStream, OutputStreamWriter}
+import java.nio.file.{Path, Paths}
 import scala.language.postfixOps
 import scala.sys.process._
 

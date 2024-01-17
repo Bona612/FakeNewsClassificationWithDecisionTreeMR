@@ -2,9 +2,9 @@ package dataacquisition
 
 import org.apache.spark.ml.Transformer
 import org.apache.spark.ml.param.{Param, ParamMap}
-import org.apache.spark.ml.util.{DefaultParamsReadable, DefaultParamsWritable, Identifiable}
-import org.apache.spark.sql.{Column, DataFrame, Dataset}
+import org.apache.spark.ml.util.{DefaultParamsWritable, Identifiable}
 import org.apache.spark.sql.functions.{col, lower, regexp_replace, trim}
+import org.apache.spark.sql.{Column, DataFrame, Dataset}
 
 class TextCleaner(override val uid: String) extends Transformer with DefaultParamsWritable {
 

@@ -3,8 +3,8 @@ package dataacquisition
 import org.apache.spark.sql.SparkSession
 
 import java.io.{BufferedOutputStream, FileInputStream, FileOutputStream}
-import java.util.zip.{ZipEntry, ZipInputStream}
-import java.nio.file.{Files, Path, Paths}
+import java.nio.file.{Files, Paths}
+import java.util.zip.ZipInputStream
 
 class Unzipper(val zipPath: String, val extractDir: String, val spark: SparkSession)  {
 
