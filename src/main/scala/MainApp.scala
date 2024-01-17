@@ -25,7 +25,7 @@ object MainApp {
   def main(args: Array[String]): Unit = {
 
     // set true if you want to test in local
-    val testLocal = true
+    val testLocal = false
 
     /*
     * vars set in local mode
